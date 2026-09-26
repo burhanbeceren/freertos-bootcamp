@@ -1,0 +1,20 @@
+# Derleme çıktıları
+hafta-01/firmware/build/
+*.o
+*.d
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE
+.metadata/
+.settings/
+*.launch
+.vscode/
+
+# Ders materyali (kaynak ödev dokümanı, herkese açık depoya konmaz)
+gereksinimler.docx
+~$*.docx
