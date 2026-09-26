@@ -53,6 +53,7 @@ uint32_t    evlog_open_isr(uint32_t t0);                /* yeni kimlik döner (1
 void        evlog_set(uint32_t id, int idx, uint32_t t);
 void        evlog_status(uint32_t id, ev_status_t st);
 void        evlog_finalize(void);                       /* PENDING -> TIMEOUT        */
+bool        evlog_all_closed(void);                     /* PENDING olay kalmadı mı */
 uint32_t    evlog_count(void);                          /* kaydedilen olay sayısı    */
 bool        evlog_get(uint32_t id, ev_rec_t *out);
 const char *evlog_status_str(uint8_t st);

@@ -35,6 +35,12 @@ const scenario_t *scenario_current(void)
     return s_current;
 }
 
+const scenario_t *scenario_next(void)
+{
+    const uint32_t i = (uint32_t)(s_current - &s_table[0]);
+    return &s_table[(i + 1u) % SCENARIO_COUNT];
+}
+
 void scenario_set(const scenario_t *s)
 {
     s_current = s;

@@ -14,6 +14,7 @@ TaskHandle_t      g_uarttx_task;
 TaskHandle_t      g_tel_task;
 volatile bool     g_started;
 volatile uint32_t g_arm_at_us;
+volatile bool     g_stop_pending;
 
 void app_init(void)
 {
@@ -33,5 +34,6 @@ void app_init(void)
     ok &= xTaskCreate(uarttx_task,    "UartTx",    STACK_UARTTX,    NULL, PRIO_UARTTX,    &g_uarttx_task);
     configASSERT(ok == pdPASS);
 
-    button_init_irq();   /* Kuyruk hazır olduktan sonra EXTI açılır */
+    button_init_irq();          /* Kuyruk hazır olduktan sonra EXTI açılır */
+    control_button_init_irq();
 }

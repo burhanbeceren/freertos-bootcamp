@@ -124,7 +124,9 @@ class Session:
         with open(cnt_path, "w", newline="", encoding="ascii") as f:
             w = csv.writer(f, lineterminator="\n")
             w.writerow(["group", "key", "value"])
-            for k, v in self.info.items():
+            info = dict(self.info)
+            info["scenario"] = self.scenario      # bağlantı anındaki INFO eski senaryoyu taşıyabilir
+            for k, v in info.items():
                 w.writerow(["INF", k, v])
             for k, v in self.counters.items():
                 w.writerow(["CNT", k, v])

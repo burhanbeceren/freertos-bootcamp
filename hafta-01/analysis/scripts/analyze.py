@@ -12,8 +12,10 @@ Girdi (measurements/):
   analysis/plots/stages_box.png
   analysis/plots/R_vs_phase.png        (hipotez testi: gecikme telemetri fazına bağlı mı?)
   analysis/results_tables.md           (report.md'nin kullandığı tablolar)
+  docs/zaman-cizelgesi.png             (seçilen üç senaryonun GERÇEK olaylarından zaman çizelgesi)
+  docs/zaman-cizelgesi_tablo.md        (R ve deadline payı tablosu)
 
-Çalıştırma:  python analysis/scripts/analyze.py [--measurements DIR] [--out DIR]
+Çalıştırma:  python analysis/scripts/analyze.py [--measurements DIR] [--out DIR] [--timeline S0,S3,S5]
 """
 from __future__ import annotations
 
@@ -29,7 +31,6 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "interface"))
-sys.path.insert(0, str(ROOT / "analysis" / "model"))
 from uart_monitor.metrics import DEADLINE_US, STAGES, diff_us, read_counters, read_csv, summarize  # noqa: E402
 
 SCENARIOS = ["S0", "S1", "S2", "S3", "S4", "S5"]
@@ -109,7 +110,7 @@ def plot_R_vs_event(data, out: Path):
     plt.close(fig)
 
 
-def plot_stages_stacked(data, out: Path, predictions: dict | None):
+def plot_stages_stacked(data, out: Path):
     fig, ax = plt.subplots(figsize=(10, 5.2))
     xs = [s for s in SCENARIOS if s in data]
     bottoms = [0.0] * len(xs)
@@ -124,10 +125,6 @@ def plot_stages_stacked(data, out: Path, predictions: dict | None):
     for x, b, s in zip(xs, bottoms, xs):
         n = sum(1 for r in data[s][0] if r.status == "ok")
         ax.text(x, b, f"{b:.2f} ms · n={n}", ha="center", va="bottom", fontsize=8)
-    if predictions:
-        px = [s for s in xs if s in predictions]
-        ax.scatter(px, [predictions[s] for s in px], marker="D", color="black", zorder=5,
-                   label="model: ort. R (tek basış)")
     ax.axhline(DEADLINE_US / 1000, color="#dc2626", ls="--", lw=1, label="D = 20 ms")
     ax.set_ylabel("ortalama süre (ms), yalnız status=ok")
     ax.set_title("Senaryo → aşamaların ortalama süreleri (yığılmış)", fontsize=11)
@@ -239,41 +236,122 @@ def write_tables(rows, path: Path):
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def load_predictions():
-    p = ROOT / "analysis" / "model" / "predictions.csv"
-    if not p.exists():
-        return None
-    with open(p, newline="") as f:
-        return {r["scenario"]: float(r["R_mean_ms"]) for r in csv.DictReader(f)}
+STAGE_NAMES = ["t1−t0 görev bekleme", "t2−t1 hazırlama", "t3−t2 TX öncesi", "t4−t3 UART + TC"]
+
+
+def pick_events(events):
+    """Zaman çizelgesi için gerçek olaylar: en iyi, ortanca ve en kötü gözlenen R.
+    R'si birbirine 50 µs'den yakın olanlar tekrar çizilmez."""
+    ok = sorted((r for r in events if r.status == "ok"), key=lambda r: r.response_us)
+    if not ok:
+        return []
+    picked = []
+    for tag, ev in (("en iyi gözlenen", ok[0]), ("ortanca", ok[len(ok) // 2]), ("en kötü gözlenen", ok[-1])):
+        if all(abs(ev.response_us - p.response_us) > 50 for _, p in picked):
+            picked.append((tag, ev))
+    return picked
+
+
+def plot_timeline(data, mdir: Path, scenarios: list, out_png: Path, out_md: Path):
+    """Seçilen senaryoların GERÇEK olaylarını t0'a göre çizer; R ve deadline payını tablolar."""
+    cases = [(s, tag, ev) for s in scenarios if s in data for tag, ev in pick_events(data[s][0])]
+    if not cases:
+        return False
+    fig, axes = plt.subplots(len(cases), 1, figsize=(12, 1.9 * len(cases) + 1), squeeze=False)
+    rows = []
+    for ax, (s, tag, ev) in zip(axes[:, 0], cases):
+        t0 = ev.t[0]
+        for k in range(4):
+            a, b = diff_us(t0, ev.t[k]), diff_us(t0, ev.t[k + 1])
+            ax.broken_barh([(a / 1000, (b - a) / 1000)], (0.55, 0.8), color=STAGE_COLORS[k])
+        for k in range(5):
+            x = diff_us(t0, ev.t[k]) / 1000
+            ax.axvline(x, color="#334155", lw=0.6, ls=":")
+            ax.text(x, 1.5, f"t{k}", ha="center", fontsize=8)
+        # Aynı oturumdaki TEL üretim anları (MCU saati), t0 çevresinde
+        tels = [diff_us(t0, t) for t in tel_times(mdir / "raw" / f"{s}_session.log")]
+        tels = [((t + 2**31) % 2**32 - 2**31) / 1000 for t in tels]
+        tels = [t for t in tels if -12 <= t <= max(25, ev.response_us / 1000 + 2)]
+        if tels:
+            ax.plot(tels, [0.25] * len(tels), "v", color="#64748b", ms=6)
+        ax.axvline(DEADLINE_US / 1000, color="#dc2626", ls="--", lw=1.4)
+        R = ev.response_us
+        margin = DEADLINE_US - R
+        st = [ev.stage_us(k, k + 1) / 1000 for k in range(4)]
+        ax.set_title(f"{s} · olay {ev.event_id} ({tag}) — R = {R / 1000:.3f} ms · pay = {margin / 1000:+.3f} ms · "
+                     "aşamalar " + " / ".join(f"{v:.3f}" for v in st) + " ms", fontsize=9, loc="left")
+        ax.set_yticks([])
+        ax.set_ylim(0, 1.8)
+        ax.set_xlim(-2, max(22, R / 1000 + 2))
+        ax.grid(axis="x", alpha=0.3)
+        rows.append((s, ev.event_id, tag, st, R, margin))
+    axes[-1, 0].set_xlabel("t0'dan (buton ISR girişi) itibaren süre (ms) — MCU TIM2 zaman damgaları")
+    handles = [plt.Rectangle((0, 0), 1, 1, color=c) for c in STAGE_COLORS] + \
+              [plt.Line2D([], [], marker="v", ls="", color="#64748b"),
+               plt.Line2D([], [], color="#dc2626", ls="--")]
+    fig.legend(handles, STAGE_NAMES + ["TEL üretimi (aynı oturum)", "D = 20 ms"],
+               loc="lower center", ncol=6, fontsize=8, frameon=False)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=130)
+    plt.close(fig)
+
+    lines = ["<!-- analysis/scripts/analyze.py tarafından gerçek ölçümden üretilir. Elle düzenlemeyin. -->", "",
+             "| Senaryo | Olay | Seçim | t1−t0 | t2−t1 | t3−t2 | t4−t3 | **R** | **Pay (20 − R)** | Sonuç |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for s, eid, tag, st, R, m in rows:
+        lines.append(f"| {s} | {eid} | {tag} | " + " | ".join(f"{v:.3f}" for v in st) +
+                     f" | **{R / 1000:.3f}** | **{m / 1000:+.3f}** | {'✅ karşılandı' if m >= 0 else '❌ kaçırıldı'} |")
+    lines += ["", "Süreler ms'dir. Olaylar ham CSV'den seçilir: her senaryonun en iyi, ortanca ve en kötü gözlenen `ok` olayı (R'si 50 µs'den yakın olanlar tekrar gösterilmez)."]
+    out_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
+
+
+def run_analysis(measurements: Path = ROOT / "measurements", out: Path = ROOT / "analysis",
+                 docs: Path = ROOT / "docs", timeline=("S0", "S3", "S5")) -> dict:
+    """Tüm çıktıları ham CSV'den üretir. Arayüz de bu fonksiyonu çağırır.
+
+    Dönüş: {"rows": özet satırları, "missing": eksik senaryolar, "files": üretilen dosyalar}
+    """
+    data = load(measurements)
+    result = {"rows": [], "missing": [s for s in SCENARIOS if s not in data], "files": []}
+    if not data:
+        return result
+    plots = out / "plots"
+    plots.mkdir(parents=True, exist_ok=True)
+    result["rows"] = write_summary(data, measurements / "summary.csv")
+    plot_R_vs_event(data, plots)
+    plot_stages_stacked(data, plots)
+    plot_stages_box(data, plots)
+    files = [plots / "R_vs_event.png", plots / "stages_stacked.png", plots / "stages_box.png"]
+    if plot_R_vs_phase(data, measurements, plots):
+        files.append(plots / "R_vs_phase.png")
+    write_tables(result["rows"], out / "results_tables.md")
+    if plot_timeline(data, measurements, list(timeline),
+                     docs / "zaman-cizelgesi.png", docs / "zaman-cizelgesi_tablo.md"):
+        files.append(docs / "zaman-cizelgesi.png")
+    result["files"] = files
+    return result
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--measurements", type=Path, default=ROOT / "measurements")
     ap.add_argument("--out", type=Path, default=ROOT / "analysis")
+    ap.add_argument("--docs", type=Path, default=ROOT / "docs")
+    ap.add_argument("--timeline", default="S0,S3,S5", help="zaman çizelgesi için üç senaryo")
     a = ap.parse_args()
 
-    data = load(a.measurements)
-    missing = [s for s in SCENARIOS if s not in data]
-    if not data:
+    res = run_analysis(a.measurements, a.out, a.docs, a.timeline.split(","))
+    if not res["rows"]:
         print(f"Ölçüm bulunamadı: {a.measurements}. Önce arayüzle S0..S5 kaydedin.")
         return 1
-    if missing:
-        print("Eksik senaryolar:", ", ".join(missing))
-
-    plots = a.out / "plots"
-    plots.mkdir(parents=True, exist_ok=True)
-    rows = write_summary(data, a.measurements / "summary.csv")
-    plot_R_vs_event(data, plots)
-    plot_stages_stacked(data, plots, load_predictions())
-    plot_stages_box(data, plots)
-    phase = plot_R_vs_phase(data, a.measurements, plots)
-    write_tables(rows, a.out / "results_tables.md")
-
-    for r in rows:
+    if res["missing"]:
+        print("Eksik senaryolar:", ", ".join(res["missing"]))
+    for r in res["rows"]:
         print(f"{r['scenario']}: n={r['n_events']} ok={r['n_ok']} geç={r['n_late']} "
               f"R ort/maks={r['R_mean_ms'] or 0:.2f}/{r['R_max_ms'] or 0:.2f} ms")
-    print("Faz grafiği:", "çizildi" if phase else "TEL verisi yok")
+    print("Üretilen:", ", ".join(f.name for f in res["files"]))
     return 0
 
 

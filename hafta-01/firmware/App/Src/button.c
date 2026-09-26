@@ -12,21 +12,26 @@
 #include "msg.h"
 #include "scenario.h"
 #include "timebase.h"
+#include <string.h>
 
 #define BTN_PIN_MASK   (1u << 0)     /* PA0 = B1 (aktif yüksek)          */
 
 static uint32_t s_last_edge_us;
 static bool     s_have_edge;
+static uint32_t s_idle_press_us;   /* boştaki (ölçüm dışı) basışın başlangıcı */
+static bool     s_idle_down;
+
+typedef enum { EDGE_NONE, EDGE_MEASURE, EDGE_IDLE_PRESS, EDGE_IDLE_RELEASE } edge_t;
 
 /*
  * Basış kenarı + 30 ms tekrar-kenar filtresi.
  * EXTI iki kenarda da tetiklenir; böylece bırakma sıçramaları da görülüp atılır.
  *  - Önceki HERHANGİ bir kenardan 30 ms geçmeden gelen kenar: sıçrama, sayılır, atılır.
- *  - Sessiz dönemden sonra gelen yükselen kenar (pin = 1): basış, kabul.
- *  - Sessiz dönemden sonra gelen düşen kenar (pin = 0): bırakma, olay değil.
- * İlk kenar geciktirilmeden kabul edilir; t0 filtrenin kabul ettiği kenarın zamanıdır.
+ *  - Ölçüm açıkken sessizlikten sonra gelen yükselen kenar: ölçülen basış (gecikmesiz).
+ *  - Ölçüm kapalıyken: basış/bırakma süresine göre kontrol (kısa: sonraki senaryo,
+ *    uzun: START). Ölçüm yolundaki davranış değişmez.
  */
-static bool accept_edge(uint32_t now)
+static edge_t classify_edge(uint32_t now)
 {
     const bool level_high = (GPIOA->IDR & BTN_PIN_MASK) != 0u;
     const bool quiet = !s_have_edge || elapsed_us(s_last_edge_us, now) >= DEBOUNCE_US;
@@ -36,16 +41,36 @@ static bool accept_edge(uint32_t now)
 
     if (!quiet) {
         g_cnt.bounce++;
-        return false;
+        return EDGE_NONE;
     }
-    if (!level_high) {
-        return false;                         /* bırakma kenarı */
+    if (g_started) {
+        if (!level_high) {
+            return EDGE_NONE;                     /* bırakma kenarı */
+        }
+        if (g_stop_pending || (int32_t)(now - g_arm_at_us) < 0) {
+            g_cnt.ignored++;                      /* 5 s ısınma / otomatik durdurma */
+            return EDGE_NONE;
+        }
+        return EDGE_MEASURE;
     }
-    if (!g_started || (int32_t)(now - g_arm_at_us) < 0) {
-        g_cnt.ignored++;                      /* ölçüm dışı / 5 s ısınma */
-        return false;
+    if (level_high) {
+        s_idle_down = true;
+        s_idle_press_us = now;
+        return EDGE_IDLE_PRESS;
     }
-    return true;
+    if (s_idle_down) {
+        s_idle_down = false;
+        return EDGE_IDLE_RELEASE;
+    }
+    return EDGE_NONE;
+}
+
+static void post_cmd_isr(const char *text, BaseType_t *wake)
+{
+    cmd_t c;
+    strncpy(c.text, text, sizeof c.text - 1u);
+    c.text[sizeof c.text - 1u] = '\0';
+    (void)xQueueSendFromISR(g_cmd_q, &c, wake);
 }
 
 void EXTI0_IRQHandler(void)
@@ -53,17 +78,22 @@ void EXTI0_IRQHandler(void)
     const uint32_t now = timer_us();          /* t0: ISR girişi */
     EXTI->PR = BTN_PIN_MASK;                  /* bayrağı temizle (1 yazarak) */
 
-    if (!accept_edge(now)) {
-        return;
-    }
-
-    g_cnt.accepted++;
-    button_event_t e = { .id = evlog_open_isr(now), .t0_us = now };
-
+    const edge_t edge = classify_edge(now);
     BaseType_t wake = pdFALSE;
-    if (xQueueSendFromISR(g_button_q, &e, &wake) != pdPASS) {
-        g_cnt.btn_q_drop++;
-        evlog_status(e.id, EV_BTN_DROP);
+
+    if (edge == EDGE_MEASURE) {
+        g_cnt.accepted++;
+        button_event_t e = { .id = evlog_open_isr(now), .t0_us = now };
+        if (xQueueSendFromISR(g_button_q, &e, &wake) != pdPASS) {
+            g_cnt.btn_q_drop++;
+            evlog_status(e.id, EV_BTN_DROP);
+        }
+        if (g_cnt.accepted >= AUTO_STOP_EVENTS) {
+            g_stop_pending = true;            /* yeni basış kabul edilmez; UartTxTask bitirir */
+        }
+    } else if (edge == EDGE_IDLE_RELEASE) {
+        const bool long_press = elapsed_us(s_idle_press_us, now) >= CTL_LONG_PRESS_US;
+        post_cmd_isr(long_press ? "START" : "SCNNEXT", &wake);
     }
     portYIELD_FROM_ISR(wake);
 }

@@ -84,10 +84,10 @@ CPU işi sabit iterasyonlu bir xorshift döngüsüdür. Açılışta kartta kali
 
 ## 6. Deney prosedürü (her senaryoda aynı sıra)
 
-1. Senaryoyu seçin (`SCN,Sx`). Önceki TX biter; kayıtlar ve sayaçlar sıfırlanır.
-2. `START` gönderin. Frekansı, 64 baytlık mesaj boyunu ve CPU işini doğrulayın. **5 s ısınma** uygulayın; MCU bu sürede basışları kabul etmez.
-3. En az **30 basış** yapın. Basışlar arasında **en az 0,5 s** olsun ve zamanlamayı değiştirin.
-4. `STOP` gönderin. Telemetri durur, TX tamamlanır ya da timeout kaydedilir. Ardından `DUMP` ile veriyi dışarı aktarın.
+1. Senaryoyu seçin (mavi butona kısa basış veya `SCN,Sx`). Önceki TX biter; kayıtlar ve sayaçlar sıfırlanır.
+2. Başlatın (uzun basış veya `START`). Frekansı, 64 baytlık mesaj boyunu ve CPU işini doğrulayın. **5 s ısınma** uygulayın; MCU bu sürede basışları kabul etmez.
+3. **30 basış** yapın. Basışlar arasında **en az 0,5 s** olsun ve zamanlamayı değiştirin.
+4. 30. olayın yanıtı hattan çıkınca MCU telemetriyi durdurur, TX'i tamamlar (ya da timeout kaydeder) ve veriyi dışarı aktarır (DUMP). PC'den `STOP`/`DUMP` ile de yapılabilir.
 5. Ham CSV'yi saklayın; grafikleri aynı ham veriden üretin.
 
 Toplam en az 6 × 30 = **180 kabul edilen olay**. Kayıplar ve hatalar ayrıca raporlanır, sonuçtan gizlenmez.

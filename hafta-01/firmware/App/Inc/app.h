@@ -36,6 +36,7 @@ extern UART_HandleTypeDef huart2;
 /* Ölçüm durumu (UartTxTask yazar, ISR/görevler okur) */
 extern volatile bool      g_started;      /* START alındı            */
 extern volatile uint32_t  g_arm_at_us;    /* bu andan sonra basış kabul */
+extern volatile bool      g_stop_pending; /* AUTO_STOP_EVENTS doldu, kapanış bekleniyor */
 
 void app_init(void);                      /* scheduler öncesi çağrılır */
 
@@ -51,5 +52,6 @@ void telemetry_stats(uint32_t *per_min, uint32_t *per_max,
                      uint32_t *work_min, uint32_t *work_max);
 
 void button_init_irq(void);
+void control_button_init_irq(void);   /* PE7: deney kontrol butonu */
 
 #endif /* APP_H */

@@ -37,6 +37,8 @@
 #define DEBOUNCE_US             30000u   /* 30 ms tekrar-kenar filtresi */
 #define WARMUP_MS               5000u    /* 5 s ısınma                  */
 #define TX_TIMEOUT_MS           1000u    /* TC bekleme / deney timeout'u */
+#define CTL_LONG_PRESS_US       1000000u /* boşta uzun basış = START        */
+#define AUTO_STOP_EVENTS        30u      /* bu kadar kabul edilen basıştan sonra deney biter */
 
 /* ---- Olay kaydı ---- */
 #define LOG_CAPACITY            128u     /* >= 64 olay; aşılırsa taşma sayacı */

@@ -80,6 +80,7 @@ static void MX_GPIO_Init(void)
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
 
     /* LED'ler */
     HAL_GPIO_WritePin(LED_PORT, LED_GREEN_PIN | LED_ORANGE_PIN | LED_RED_PIN | LED_BLUE_PIN,
@@ -95,7 +96,12 @@ static void MX_GPIO_Init(void)
     g.Mode = GPIO_MODE_IT_RISING_FALLING;
     g.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &g);
-    /* NVIC, kuyruklar kurulduktan sonra button_init_irq() ile açılır. */
+    /* PE7 = deney kontrol butonu (diğer ucu GND), dahili pull-up, iki kenar. */
+    g.Pin  = GPIO_PIN_7;
+    g.Mode = GPIO_MODE_IT_RISING_FALLING;
+    g.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOE, &g);
+    /* NVIC'ler, kuyruklar kurulduktan sonra app_init() içinde açılır. */
 }
 
 static void MX_DMA_Init(void)

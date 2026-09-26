@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, 
                                QVBoxLayout, QWidget)
 
 from . import protocol as P
+from .analysis_view import AnalysisView, MeasurementsView
 from .link import SerialWorker, available_ports
 from .metrics import DEADLINE_US, STAGES, summarize
 from .session import MIN_PRESSES, WARMUP_S, Session, State
@@ -42,6 +43,8 @@ class MainWindow(QMainWindow):
         self.session = Session()
         self.pending: list = []
         self.warmup_until: float | None = None
+        self.info_deadline: float | None = None
+        self.pc_stop = False   # STOP'u PC mi gönderdi? (kart butonuyla durdurulursa DUMP kartta)
         self.out_dir = DEFAULT_OUT
 
         self._build_ui()
@@ -102,6 +105,17 @@ class MainWindow(QMainWindow):
         gl.addWidget(self.info_btn, 6, 1)
         gl.addWidget(self.dir_lbl, 7, 0, 1, 2)
         lv.addWidget(g)
+
+        hint = QLabel(
+            "<b>Kontrol karttan: mavi USER butonu (PA0)</b><br>"
+            "Boşta <b>kısa</b> bas: sonraki senaryo<br>"
+            "Boşta <b>uzun</b> bas (≥ 1 s): başlat → 5 s ısınma<br>"
+            "Ölçümde her basış bir olaydır; <b>30. basıştan sonra</b><br>"
+            "deney kendiliğinden biter, kayıtlar gelir ve CSV kaydedilir.<br>"
+            "<span style='color:gray'>(İsteğe bağlı PE7 butonu da aynı işi yapar.)</span>")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("background: #eef6ff; padding: 6px; border-radius: 4px")
+        lv.addWidget(hint)
 
         s = QGroupBox("Durum")
         sl = QVBoxLayout(s)
@@ -168,6 +182,13 @@ class MainWindow(QMainWindow):
         self.raw_view.setFont(QFont("Consolas", 9))
         self.tabs.addTab(self.raw_view, "Ham UART")
 
+        # Kaydedilmiş gerçek ölçümler ve analiz (ham CSV'den)
+        self.meas_view = MeasurementsView(lambda: self.out_dir)
+        self.tabs.addTab(self.meas_view, "Ölçümler (kayıtlı)")
+        self.analysis_view = AnalysisView(lambda: self.out_dir)
+        self.tabs.addTab(self.analysis_view, "Analiz ve grafikler")
+        self.meas_view.refresh()
+
         split.addWidget(right)
         split.setSizes([330, 870])
         self._update_buttons()
@@ -175,7 +196,12 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------- bağlantı
     def _refresh_ports(self):
         self.port_cb.clear()
-        for dev, desc in available_ports():
+        ports = available_ports()
+        # USB-TTL'yi öne al; ST-LINK VCP bu kartta PA2/PA3'e bağlı değil
+        ports.sort(key=lambda p: "STLink" in p[1])
+        for dev, desc in ports:
+            if "STLink" in desc:
+                desc += "  ⚠ PA2/PA3'e bağlı değil"
             self.port_cb.addItem(desc, dev)
 
     def _toggle_connect(self):
@@ -196,6 +222,8 @@ class MainWindow(QMainWindow):
             self.worker.start()
             self.conn_lbl.setText(f"● Bağlı: {dev}")
             self.conn_btn.setText("Bağlantıyı kes")
+            self.session.info.clear()
+            self.info_deadline = time.monotonic() + 2.5
             QTimer.singleShot(300, lambda: self._send(P.CMD_INFO))
         self._update_buttons()
 
@@ -228,6 +256,7 @@ class MainWindow(QMainWindow):
                                     f"Yalnızca {self.session.btn_seen} basış var (hedef ≥ {MIN_PRESSES}). "
                                     "Yine de durdurulsun mu?") != QMessageBox.Yes:
                 return
+        self.pc_stop = True
         self._send(P.CMD_STOP)
 
     def _choose_dir(self):
@@ -248,6 +277,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Kaydet", str(exc))
             return
         self.statusBar().showMessage("Kaydedildi: " + ", ".join(p.name for p in paths), 8000)
+        # Kaydedilen gerçek veriyle tabloyu ve analizi yenile
+        self.meas_view.show_scenario(self.session.scenario)
+        self.analysis_view.run()
 
     # ------------------------------------------------------------------ akış
     def _flush(self):
@@ -272,7 +304,9 @@ class MainWindow(QMainWindow):
             st.state = State.MEASURING
         if st.state is State.STOPPING and prev_state is not State.STOPPING:
             st.state = State.DUMPING
-            self._send(P.CMD_DUMP)
+            if self.pc_stop:          # kart butonuyla durdurulduysa kart kendisi döker
+                self._send(P.CMD_DUMP)
+            self.pc_stop = False
         if st.state is State.DONE and prev_state is not State.DONE:
             self._show_results()
             if self.autosave_cb.isChecked():
@@ -295,7 +329,10 @@ class MainWindow(QMainWindow):
             self.info_lbl.setText(f"FW {st.info.get('fw', '?')} · git {st.info.get('git', '?')} · "
                                   f"{int(st.info.get('sysclk_hz', 0)) // 1_000_000} MHz · "
                                   f"tick {st.info.get('tick_hz', '?')} Hz · build {st.info.get('build', '?')}")
-        self.err_lbl.setText("\n".join(st.errors[-3:]))
+        errs = st.errors[-3:]
+        if self.worker and self.info_deadline and not st.info and time.monotonic() > self.info_deadline:
+            errs = ["Karttan yanıt yok: doğru COM portu mu? (USB-TTL: PA2→RXD, PA3←TXD, GND)"] + errs
+        self.err_lbl.setText("\n".join(errs))
         self._update_buttons()
 
     def _update_buttons(self):

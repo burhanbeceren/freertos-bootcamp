@@ -5,19 +5,24 @@
 | Bileşen | Not |
 |---|---|
 | STM32F407G-DISC1 (MB997) | Mini-USB (CN1) ile ST-LINK: besleme + programlama |
-| USB-TTL dönüştürücü | **3,3 V lojik** (CP2102 / CH340 / FT232). DISC1'de ST-LINK sanal COM portu yoktur. |
+| USB-TTL dönüştürücü | **3,3 V lojik** (bu çalışmada FT232 modülü kullanıldı). ST-LINK'in COM portu ("STLink Virtual COM Port") bu kartta PA2/PA3'e bağlı **değildir**; arayüzde USB-TTL'nin portunu seçin. |
 
 ```
  STM32F407G-DISC1              USB-TTL (3,3 V)
- PA2  (USART2_TX)  ─────────►  RXD
- PA3  (USART2_RX)  ◄─────────  TXD
- GND               ──────────  GND
+ PA2  (USART2_TX)  ─────────►  RXD        (zorunlu: telemetri ve ölçüm verisi)
+ PA3  (USART2_RX)  ◄─────────  TXD        (isteğe bağlı: PC'den komut)
+ GND               ──────────  GND        (zorunlu)
                                VCC  → BAĞLAMAYIN
 ```
 
+Ölçüm için yalnızca **kart → PC** yönü (PA2 → RXD) gereklidir. Deney akışı kartın mavi butonuyla yönetilir (§6).
+
+> **Adaptör notu:** Bu çalışmada iki adaptörün PC → kart yönü çalışmadı. PL2303HXA güncel Prolific sürücüsüyle hiç açılmadı. FT232 modülünde TX hep LOW kaldı; loopback testi (TXD↔RXD) başarısız oldu. Bu yüzden ölçümler **yalnızca RX** ile yapıldı. Adaptörünüzü denemek için TXD'yi RXD'ye bağlayıp bir terminalden gönderdiğinizin geri geldiğini kontrol edin.
+
 | Pin | Görev |
 |---|---|
-| PA0 | B1 kullanıcı butonu (EXTI0, iki kenar, kartta pull-down + RC) |
+| PA0 | B1 mavi USER butonu (EXTI0, iki kenar, kartta pull-down + RC). **Ölçülen buton** ve deney kontrolü; kablo gerekmez. |
+| PE7 | İsteğe bağlı ikinci kontrol butonu (diğer ucu GND, dahili pull-up). Kullanılmadı. |
 | PA2 / PA3 | USART2 TX / RX, AF7 |
 | PD12 yeşil | Açılış tamamlandı |
 | PD13 turuncu | Ölçüm aktif (START…STOP) |
@@ -94,17 +99,38 @@ Testler: `.venv/Scripts/python -m pytest -q`
 
 Her senaryo S0…S5 için aynı sıra izlenir:
 
-1. **Port**'u seçin → **Bağlan**. Üst satırda FW, git ve 168 MHz bilgisi görünmelidir.
-2. Senaryoyu seçin → **1 · Senaryoyu ayarla (SCN)**. MCU önceki TX'i bitirir, kayıtları sıfırlar.
-3. **2 · Başlat**. Turuncu LED yanar. **5 s geri sayım** sırasında butona basmayın.
-4. "Ölçüm" durumunda butona **en az 30 kez** basın. Basışlar arasında en az 0,5 s olsun ve ritmi bilerek değiştirin. Her basışta mavi LED değişir ve arayüzde "Butona basıldı · Olay N" görünür.
-5. **3 · Durdur ve kayıtları al**. STOP → DUMP otomatik çalışır. Arayüz `measurements/Sx.csv`, `Sx_counters.csv` ve `raw/Sx_session.log` dosyalarını kaydeder.
+Deney kartın **mavi USER butonuyla** yönetilir. Arayüz yalnızca dinler.
+
+| Durum | Mavi butona… | Sonuç |
+|---|---|---|
+| Boşta | kısa bas (< 1 s) | Sonraki senaryo (S0 → S1 → … → S5 → S0). Kayıt ve sayaçlar sıfırlanır. |
+| Boşta | uzun bas (≥ 1 s) | START. Turuncu LED yanar, 5 s ısınma başlar; bu sürede basışlar kabul edilmez. |
+| Ölçümde | her basış | Ölçülen olay (t₀…t₄) |
+| Ölçümde | 30. kabul edilen basış | Yeni basış kabul edilmez. 30. olayın yanıtı telemetri ve CPU yükü açıkken hattan çıkınca STOP + DUMP otomatik çalışır. |
+
+1. Arayüzde USB-TTL portunu seçin → **Bağlan**. FW ve 168 MHz bilgisi için gerekirse kartın siyah RESET butonuna basın.
+2. Mavi butona kısa basarak senaryoyu seçin; arayüzde görünür.
+3. Uzun basın → 5 s ısınmayı bekleyin.
+4. **30 kez** basın. Basışlar arasında en az 0,5 s olsun ve ritmi bilerek değiştirin. Her basışta mavi LED değişir ve arayüzde "Butona basıldı · Olay N" görünür.
+5. Deney kendiliğinden biter. Arayüz `measurements/Sx.csv`, `Sx_counters.csv` ve `raw/Sx_session.log` dosyalarını kaydeder, R grafiğini çizer.
 6. S0'dan S5'e kadar tekrarlayın. Ardından:
    ```bash
    cd hafta-01
    interface/.venv/Scripts/python analysis/scripts/analyze.py
    ```
-   Bu komut `measurements/summary.csv`, `analysis/plots/*.png` ve `analysis/results_tables.md` dosyalarını üretir.
+   Bu komut `measurements/summary.csv`, `analysis/plots/*.png`, `analysis/results_tables.md` ve `docs/zaman-cizelgesi.png` / `_tablo.md` dosyalarını üretir.
+
+PC → kart yönü çalışan bir adaptörde arayüzdeki SCN / START / STOP düğmeleri de aynı akışı yönetir.
+
+**Arayüzde sonuçları görmek:** Komut satırı gerekmez.
+
+| Sekme | İçerik |
+|---|---|
+| BTN olayları | Canlı "Butona basıldı · Olay N" listesi |
+| Sonuçlar | Son deneyin R grafiği (20 ms çizgisi), aşama ortalaması, istatistik ve kayıplar |
+| Ham UART | Karttan gelen satırlar (TEL hariç) |
+| Ölçümler (kayıtlı) | Seçilen senaryonun kayıtlı CSV'si: olay başına t₁−t₀…t₄−t₃, R, pay (kayıp kırmızı, geç turuncu) ve MCU sayaçları |
+| Analiz ve grafikler | **▶ Analizi çalıştır**: tüm kayıtlı senaryolardan özet tablo + 5 grafik (olay → R, aşama ortalamaları, dağılımlar, faz, zaman çizelgesi). `analyze.py` ile aynı kod ve aynı dosyalar. Her kayıttan sonra otomatik yenilenir. |
 
 **Doğrulama kontrol listesi (her senaryo):**
 `CNT,tel_period_min_us/max_us` beklenen periyoda yakın mı (S1 100000, S2 20000, S3–S5 10000)? `CNT,work_min_us/max_us` S4'te ≈ 2000, S5'te ≈ 5000 mi? `CNT,log_overflow` = 0 mı?

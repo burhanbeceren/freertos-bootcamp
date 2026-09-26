@@ -67,6 +67,17 @@ void evlog_finalize(void)
     }
 }
 
+bool evlog_all_closed(void)
+{
+    const uint32_t n = evlog_count();
+    for (uint32_t i = 0; i < n; i++) {
+        if (s_log[i].status == EV_PENDING) {
+            return false;
+        }
+    }
+    return true;
+}
+
 uint32_t evlog_count(void)
 {
     const uint32_t n = s_next_id;

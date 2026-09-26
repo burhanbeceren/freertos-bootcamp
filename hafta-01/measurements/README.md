@@ -1,6 +1,6 @@
 # Ölçümler (ham veri)
 
-> 🟡 **Henüz gerçek kart ölçümü yok.** Bu klasöre yalnızca STM32F407G-DISC1 üzerinde yapılan deneylerin çıktıları konur. Sentetik veya model verisi buraya **konmaz**.
+> ✅ STM32F407G-DISC1 üzerinde 2026-09-26/27'de alınan gerçek ölçümler: S0–S5, her birinde 30 kabul edilen basış. Bu klasörde başka kaynaklı veri yoktur.
 
 Dosyaları arayüz (`python -m uart_monitor`) ve analiz betiği üretir:
 

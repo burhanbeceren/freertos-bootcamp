@@ -14,7 +14,7 @@ STM32F407G-DISC1 üzerinde FreeRTOS tabanlı, **yük altında buton → yanıt g
 ## Haftalar
 | Hafta | Konu | Durum |
 |---|---|---|
-| [hafta-01](hafta-01/) | Yük altında buton yanıt süresi: 3 görev · UART arayüzü · ölçüm ve kanıt | Kod + dokümanlar hazır, **kart ölçümleri bekleniyor** |
+| [hafta-01](hafta-01/) | Yük altında buton yanıt süresi: 3 görev · UART arayüzü · ölçüm ve kanıt | ✅ Tamamlandı: 180 gerçek ölçüm, [rapor](hafta-01/analysis/report.md) |
 
 ## Temel Kararlar
 | Konu | Seçim |
@@ -32,7 +32,7 @@ Gerekçeler için: [hafta-01/docs/DECISIONS.md](hafta-01/docs/DECISIONS.md)
 | Doküman | İçerik |
 |---|---|
 | [gereksinim.md](hafta-01/docs/gereksinim.md) | Başlangıç (t₀), bitiş (t₄), deadline (20 ms), çalışma koşulları, senaryolar |
-| [zaman-cizelgesi.md](hafta-01/docs/zaman-cizelgesi.md) | S0, S3, S5 zaman çizelgesi; R ve deadline payı (model) |
+| [zaman-cizelgesi.md](hafta-01/docs/zaman-cizelgesi.md) | S0, S3, S5 zaman çizelgesi; R ve deadline payı (gerçek ölçümden) |
 | [analiz.md](hafta-01/analysis/analiz.md) | Hipotezler, ölçüm planı, destekleyen/yanlışlayan veri |
 | [report.md](hafta-01/analysis/report.md) | Gerçek kart sonuçları (ölçümden sonra) |
 | [setup.md](hafta-01/docs/setup.md) | Bağlantılar, araç sürümleri, derleme, yükleme, ölçüm adımları |
@@ -67,4 +67,4 @@ Her hafta bu planı kendi klasöründe uygular. `hafta-01` içinde ders teslim d
 
 ## Doküman Kuralları
 - Önemli kararlar her haftanın `docs/DECISIONS.md` dosyasına ADR olarak eklenir.
-- Model/tahmin çıktıları "MODEL" olarak etiketlenir. Sentetik veri gerçek sonuç gibi sunulmaz; `measurements/` yalnızca gerçek kart verisi içerir.
+- Tüm sonuçlar, tablolar ve grafikler gerçek kart ölçümünden üretilir; `measurements/` yalnızca gerçek kart verisi içerir.

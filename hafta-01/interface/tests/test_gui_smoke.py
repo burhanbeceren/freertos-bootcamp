@@ -19,3 +19,15 @@ def test_main_window_builds():
     w._show_results()
     assert w.stats_tbl.rowCount() > 10
     w.close()
+
+
+def test_analysis_tabs_build(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from uart_monitor.analysis_view import AnalysisView, MeasurementsView
+
+    app = QApplication.instance() or QApplication([])
+    mv = MeasurementsView(lambda: tmp_path)      # boş klasör: çökmemeli
+    mv.refresh()
+    av = AnalysisView(lambda: tmp_path)
+    av.run()
+    assert "bulunamadı" in av.status.text()

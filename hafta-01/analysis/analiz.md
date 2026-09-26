@@ -1,89 +1,77 @@
-# Analiz Planı: Hipotezler ve Ölçüm Planı
+# Analiz: Hipotez ve Ölçüm Planı
 
-> Bu doküman **ölçümden önce** yazıldı. Tahminler [../docs/zaman-cizelgesi.md](../docs/zaman-cizelgesi.md) içindeki modelden gelir. Gerçek sonuçlar ve hipotezlerin kabul/red kararı [report.md](report.md) içinde yer alır.
+Bu doküman, ödevin istediği "bir hipotez ve ölçüm planı" bölümüdür. Hipotezler ölçümden önce basit hesaplarla yazıldı. **Kararı gerçek kart ölçümleri verir.** Sonuçlar ve kararlar [report.md](report.md) içindedir.
 
 ## 1. Soru
+"100 Hz daha yavaş" demek yeterli değil. Gecikme **ne kadar**, **hangi koşulda**, **hangi aşamada** (t₁−t₀, t₂−t₁, t₃−t₂, t₄−t₃) ve **neden** değişiyor?
 
-"100 Hz daha yavaş" demek yeterli değil. Asıl sorular şunlar:
-- Gecikme **ne kadar** değişiyor?
-- **Hangi koşulda** değişiyor?
-- **Hangi aşamada** (t₁−t₀, t₂−t₁, t₃−t₂, t₄−t₃) değişiyor?
-- **Neden** değişiyor?
-
-## 2. Hipotezler
-
-### H0: Donanım aşaması sabittir
-t₄−t₃, bütün senaryolarda L + ε ≈ 5,56–5,60 ms'dir ve yükten etkilenmez. TC kesmesi bütün görevlerden önceliklidir; DMA CPU'dan bağımsız çalışır.
-
-| | |
+## 2. Hesaba dayalı başlangıç noktaları
+| Büyüklük | Değer |
 |---|---|
-| **Destekler** | Her senaryoda t₄−t₃'ün yayılımı (maks − min) < 50 µs; ortanca 5,56–5,62 ms |
-| **Yanlışlar** | t₄−t₃ yükle birlikte artıyor, ya da dağılım > 0,1 ms yayılıyor. Bu durum TC'nin geç gözlendiğini (kesme maskelenmesi) gösterir. |
+| Bir mesajın hat süresi L = 64 × 10 / 115200 | 5,556 ms |
+| Telemetri hat kullanımı U = L × f | 10 Hz: %5,6 · 50 Hz: %27,8 · 100 Hz: %55,6 |
+| Ek CPU talebi C × f | S4: %20 · S5: %50 |
 
-### H1: Telemetri frekansı yalnızca "TX öncesi" aşamayı etkiler (S0 → S1 → S2 → S3)
-Telemetri frekansı arttıkça yanıt süresi uzar. Ancak artış **yalnızca t₃−t₂**'de görülür: BTN, FIFO'da hatta olan TEL mesajının bitmesini bekler. t₁−t₀ ve t₂−t₁ değişmez, çünkü ButtonTask TelemetryTask'ın yalnızca ~20 µs'lik biçimlendirmesini bekler.
+## 3. Hipotezler ve yanlışlama ölçütleri
 
-| Tahmin | S1 | S2 | S3 |
-|---|---|---|---|
-| Bekleme yaşayan basış oranı ≈ hat kullanımı | %5,6 | %27,8 | %55,6 |
-| t₃−t₂ ortalama ≈ U × L/2 | 0,17 ms | 0,80 ms | 1,59 ms |
-| t₃−t₂ maks ≤ L + ε | 5,6 ms | 5,6 ms | 5,6 ms |
-| R maks ≈ 2L | 11,2 ms | 11,2 ms | 11,2 ms |
+### H0: UART aşaması (t₄−t₃) yükten bağımsızdır
+TC kesmesi görevlerden önceliklidir; DMA, CPU'dan bağımsız çalışır.
+- **Destekler:** Her senaryoda t₄−t₃ ≈ 5,56–5,6 ms ve yayılımı < 0,05 ms.
+- **Yanlışlar:** t₄−t₃ yükle birlikte büyüyor.
 
-| | |
-|---|---|
-| **Destekler** | (a) S0→S3 arasında t₃−t₂ ortalaması, U ile orantılı biçimde artar. (b) t₃−t₂ hiçbir zaman ~5,6 ms'i aşmaz. (c) t₁−t₀ ve t₂−t₁ senaryolar arasında < 0,1 ms değişir. (d) Faz grafiğinde R, "son TEL'den bu yana geçen süre" 0'a yakınken en yüksektir ve L sonra 5,6 ms'e iner (testere dişi). |
-| **Yanlışlar** | (a) t₁−t₀ frekansla anlamlı artıyor. Bu, ISR/görev tarafında beklenmedik bir yük (ör. UART kesmesi) olduğunu gösterir. (b) t₃−t₂ > 2L. Bu, birden fazla mesajın biriktiğini, yani FIFO modelinin eksik olduğunu gösterir. (c) Faz ile R arasında ilişki yok. |
+### H1: Telemetri frekansı yalnızca t₃−t₂'yi uzatır (S0 → S3)
+Yanıt, FIFO'da o an hatta olan TEL mesajının bitmesini bekler.
+- **Destekler:**
+  - t₃−t₂ ortalaması frekansla artar.
+  - t₃−t₂ en fazla ≈ bir mesaj süresi (≈ 5,6 ms) olur.
+  - t₁−t₀ ve t₂−t₁ değişmez.
+  - `R_vs_phase` grafiğinde TEL'den hemen sonra yapılan basışlarda R daha büyüktür.
+- **Yanlışlar:**
+  - t₁−t₀ frekansla artıyor.
+  - t₃−t₂, 2L'yi aşıyor.
+  - R ile faz arasında ilişki yok.
 
-### H2: Kararlı CPU yükü iki aşamayı uzatır ama deadline korunur (S3 → S4)
-C = 2 ms'lik iş TelemetryTask'ta (öncelik 3) çalışır.
-- İş sırasında gelen basışlarda (≈ %20) **t₁−t₀ en fazla ~2 ms** uzar.
-- t₃−t₂ ortalaması artar: TEL mesajı işten sonra kuyruğa girer ve BTN'in önüne geçer.
-- UartTxTask'ın hizmet kapasitesi yeterlidir (C + L < T): birikme olmaz.
-- Tahmin: R maks ≈ 13,2 ms; bütün yanıtlar deadline'ı karşılar.
+### H2: 2 ms CPU işi t₁−t₀'ı uzatır, deadline korunur (S3 → S4)
+TelemetryTask (öncelik 3) çalışırken ButtonTask (2) bekler.
+- **Destekler:**
+  - İş sırasında gelen basışlarda t₁−t₀ 2 ms'e kadar çıkar.
+  - R, event_id ile birlikte artmaz.
+  - `tx_drop` = 0.
+  - `work_*_us` ≈ 2000.
+- **Yanlışlar:**
+  - t₁−t₀ > ~2,1 ms.
+  - R olaydan olaya birikerek artıyor.
 
-| | |
-|---|---|
-| **Destekler** | t₁−t₀ dağılımı iki kümeli (~0,01 ms ve 0–2 ms). R maks ≤ ~13,5 ms. `tx_drop` = 0. R, event_id ile artmaz. `work_max_us` ≈ 2000. |
-| **Yanlışlar** | t₁−t₀ > 2,1 ms (CPU işi beklenenden uzun veya başka bir yük var), ya da R event_id ile birlikte artıyor (birikme). |
+### H3: 5 ms CPU işinde darboğaz UartTxTask'ın CPU'ya erişimidir, hat değil (S4 → S5)
+C + L = 5 + 5,56 > 10 ms. Bu yüzden bir TEL'in gönderimi, TelemetryTask'ın bir sonraki işinin içinde biter. En düşük öncelikli UartTxTask ancak iş bittikten sonra yeni mesaj başlatabilir. Hipotez: yanıt kuyrukta birikir.
+- **Destekler:**
+  - t₃−t₂ büyür (≫ 5,6 ms).
+  - R, event_id ile artar (birikme).
+  - `tx_drop` / `tel_tx_drop` > 0 olabilir.
+  - Hat kullanımı %55,6 olmasına rağmen deadline kaçırılır.
+- **Yanlışlar:**
+  - t₃−t₂ ≤ ~5,6 ms kalıyor.
+  - R, olaylar boyunca sabit kalıyor.
+- **Uyarı:** `work_min_us` < ~4400 ise koşul (C + L > T) oluşmamıştır; S5 bu hipotezi test etmez.
 
-### H3: S5'te darboğaz UART hattı değil, UartTxTask'ın CPU açlığıdır (S4 → S5)
-C = 5 ms, C + L + ε > T = 10 ms. Bu yüzden bir TEL'in TC'si, TelemetryTask'ın bir sonraki işinin içine düşer. En düşük öncelikli UartTxTask, periyot başına **yalnızca bir** mesaj başlatabilir.
-- İlk basışta R = 10,7–20,6 ms; basışların ~%6'sı deadline'ı kaçırır.
-- Sonraki her basış kuyrukta **kalıcı +1 mesaj** bırakır; R ≈ +10 ms/basış artar.
-- ~15. basıştan sonra TX kuyruğu (16) dolar: `tx_drop` ve `tel_tx_drop` > 0, R ≈ 160 ms'de doyar.
-- Artışın neredeyse tamamı **t₃−t₂**'dedir; t₁−t₀ ≤ 5 ms ile sınırlıdır.
-
-Hat kullanımı yalnızca %55,6'dır. Yani "UART yetmiyor" açıklaması **yanlıştır**. Hipoteze göre hat zamanın bir kısmında boşta kalırken mesajlar kuyrukta bekler.
-
-| | |
-|---|---|
-| **Destekler** | (a) R vs event_id grafiği merdiven biçimindedir, adım ≈ 10 ms. (b) `tx_drop` > 0 ve `tel_tx_drop` > 0. (c) t₃−t₂ büyür; t₁−t₀ ≤ ~5 ms kalır. (d) `work_min_us` ≳ 4400. |
-| **Yanlışlar** | (a) R, event_id ile artmıyor ve kalıcı birikme yok. (b) `work_max_us` < ~4,4 ms ise eşik aşılmamıştır; bu durumda sonuç H3'ü **test etmez**, yalnızca S4 benzeri davranışı gösterir. (c) Birikme var ama t₁−t₀'da. Bu, ButtonTask'ın aç kaldığını gösterir ve modeli yanlışlar. |
-
-**Ayırıcı kontrol:** Aynı deneyi UartTxTask'ın önceliği ButtonTask'ın üstüne alınarak tekrarlamak. Hipotez doğruysa birikme kaybolmalıdır. Bu, çekirdek standardı değiştiren bir **ek deneydir**; S0–S5 karşılaştırmasına katılmaz. Bkz. [öneriler](../docs/ROADMAP.md).
-
-## 3. Ölçüm planı
-
-| Ne | Nasıl | Dosya |
+## 4. Ölçüm planı
+| Veri | Kaynak | Dosya |
 |---|---|---|
-| Olay başına t₀…t₄ + durum | MCU RAM kaydı → `DUMP` → CSV | `measurements/Sx.csv` |
-| Kayıp/hata sayaçları, gerçek TEL periyodu, gerçek CPU işi süresi | MCU sayaçları (`CNT`) | `measurements/Sx_counters.csv` |
-| Faz analizi için TEL üretim anları (MCU saati) | Ham UART dökümü | `measurements/raw/Sx_session.log` |
-| Özet tablo | `analysis/scripts/analyze.py` | `measurements/summary.csv` |
+| Olay başına t₀…t₄ + durum | MCU RAM kaydı → DUMP | `measurements/Sx.csv` |
+| Kayıp/hata sayaçları, gerçek periyot, gerçek CPU işi | MCU `CNT` satırları | `measurements/Sx_counters.csv` |
+| TEL üretim anları (MCU saati) | Ham UART dökümü | `measurements/raw/Sx_session.log` |
 
-**Örneklem:** Her senaryoda ≥ 30 kabul edilen basış, aralarında ≥ 0,5 s ve düzensiz zamanlama. Basışlar düzensiz olduğu için telemetri fazı rastgele örneklenir.
+- Her senaryoda ≥ 30 basış yapılır; basışlar arasında ≥ 0,5 s olur ve zamanlama düzensizdir.
+- Her senaryoda doğrulanır: `tel_period_*`, `work_*`, `log_overflow` = 0.
 
-**Grafikler** (hepsi ham CSV'den çizilir):
-1. `R_vs_event.png`: olay numarası → R, 20 ms çizgisi, kayıplar işaretli. (H3 merdiveni burada görünür.)
-2. `stages_stacked.png`: senaryo → aşama ortalamaları, yığılmış; model tahmini ◆ ile gösterilir.
-3. `stages_box.png`: aşama dağılımları. Hangi aşama değişiyor sorusunun kanıtı.
-4. `R_vs_phase.png`: R ve telemetri fazı. H1'in testere dişi burada görünür.
+**Grafikler** (hepsi `analyze.py` ile ham CSV'den):
+1. `R_vs_event.png`: olay → R, 20 ms çizgisi, kayıplar.
+2. `stages_stacked.png`: senaryo → aşama ortalamaları.
+3. `stages_box.png`: aşama dağılımları.
+4. `R_vs_phase.png`: R ve telemetri fazı.
+5. `docs/zaman-cizelgesi.png`: S0/S3/S5'ten gerçek olayların aşama çizelgesi.
 
-**Doğrulama:** Her senaryoda `CNT,tel_period_*` (10/20/100 ms), `CNT,work_*` (≈ 2000/5000 µs), `INF,msg_len = 64` kontrol edilir. Beklenen dışı bir değer, o senaryonun yorumunda belirtilir.
-
-## 4. Bilinmeyenler ve ölçüm sınırları
+## 5. Ölçüm sınırları
 - t₀ fiziksel basma anı değildir; buton mekaniği ve RC filtre ölçülmez.
-- t₄, TC kesmesinin **gözlendiği** andır; kesme gecikmesi (< birkaç µs) dahildir.
-- 30 örnekle p99 anlamlı değildir; "gözlenen maksimum" kanıtlanmış worst-case değildir.
-- Modeldeki ek yükler varsayımdır. S0 ölçümü t₁−t₀, t₂−t₁, t₃−t₂ ve t₄−t₃−L için gerçek değerleri verir; model bu değerlerle yeniden çalıştırılmalıdır.
+- t₄, TC kesmesinin **gözlendiği** andır; birkaç µs'lik kesme gecikmesi dahildir.
+- n ≈ 30 ile gözlenen maksimum, kanıtlanmış worst-case değildir.

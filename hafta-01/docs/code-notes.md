@@ -154,7 +154,24 @@ typedef struct { uint32_t t[5]; uint8_t have; uint8_t status; } ev_rec_t;   /* 1
 | t₄ − t₃ | UART başlatma, hat aktarımı ve TC gözlem süresi |
 | R = t₄ − t₀ | Kart tarafında toplam gözlenen yanıt süresi |
 
-## 7. PC tarafı
+## 7. Deney kontrolü karttan (mavi buton + otomatik durdurma)
+
+Ölçülen buton aynı zamanda deneyi yönetir. Ölçüm yolu değişmez: `EXTI0_IRQHandler` ilk komutta t₀'ı okur. Kenar sınıflandırması ölçüm açıkken önceki davranışla aynıdır.
+
+```c
+if (g_started) {                         /* ölçüm: yükselen kenar = olay */
+    if (!level_high) return EDGE_NONE;
+    if (g_stop_pending || (int32_t)(now - g_arm_at_us) < 0) { g_cnt.ignored++; return EDGE_NONE; }
+    return EDGE_MEASURE;
+}
+/* boşta: basış süresine göre kontrol */
+if (level_high) { s_idle_down = true; s_idle_press_us = now; return EDGE_IDLE_PRESS; }
+if (s_idle_down) { s_idle_down = false; return EDGE_IDLE_RELEASE; }   /* kısa: SCNNEXT, uzun: START */
+```
+
+**Otomatik durdurma** yanlılık yaratmayacak şekilde çalışır. 30. olay kabul edilince ISR `g_stop_pending = true` yapar ve yeni basış kabul edilmez. Telemetri ve CPU yükü **açık kalır**. UartTxTask her mesajdan sonra (ve 50 ms'de bir) `evlog_all_closed()` ile bütün olayların kapandığını kontrol eder. 30. olayın yanıtı hattan çıkınca ya da kayıp olarak işaretlenince STOP + DUMP yapar. Böylece son olay da diğerleriyle aynı koşulda ölçülür.
+
+## 8. PC tarafı
 `interface/uart_monitor/`:
 - `link.py`: ayrı iş parçacığında okuma yapar; satırlar toplu sinyalle gelir.
 - `protocol.py`: satır çözücü.

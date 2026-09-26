@@ -205,6 +205,7 @@ static void drain_tx_queue(void)
 static void stop_measurement(void)
 {
     g_started = false;           /* yeni basış kabul edilmez           */
+    g_stop_pending = false;
     telemetry_stop();            /* TelemetryTask bir sonraki uyanışta bloklanır */
     drain_tx_queue();            /* bekleyen TX'i tamamla / timeout kaydet */
     evlog_finalize();            /* tamamlanmayanlar -> timeout         */
@@ -292,8 +293,9 @@ static void handle_cmd(const cmd_t *c)
         reply2("ACK", "PING");
     } else if (strcmp(t, "INFO") == 0) {
         cmd_info();
-    } else if (strncmp(t, "SCN,", 4) == 0) {
-        const scenario_t *s = scenario_find(t + 4);
+    } else if (strncmp(t, "SCN,", 4) == 0 || strcmp(t, "SCNNEXT") == 0) {
+        /* SCNNEXT: PE7 kontrol butonundan kısa basış */
+        const scenario_t *s = (t[3] == ',') ? scenario_find(t + 4) : scenario_next();
         if (s == NULL) {
             reply2("NAK", "SCN,unknown");
         } else if (g_started) {
@@ -310,12 +312,18 @@ static void handle_cmd(const cmd_t *c)
         } else {
             drain_tx_queue();
             evlog_reset();
+            g_stop_pending = false;
             g_arm_at_us = timer_us() + (WARMUP_MS * 1000u);
             g_started = true;
             telemetry_start();
             HAL_GPIO_WritePin(LED_PORT, LED_ORANGE_PIN, GPIO_PIN_SET);
             reply2("ACK,START", scenario_current()->name);
         }
+    } else if (strcmp(t, "STOPDUMP") == 0) {
+        /* PE7 kontrol butonu: durdur ve kayıtları hemen gönder */
+        stop_measurement();
+        reply2("ACK,STOP", scenario_current()->name);
+        cmd_dump();
     } else if (strcmp(t, "STOP") == 0) {
         stop_measurement();
         reply2("ACK,STOP", scenario_current()->name);
@@ -351,7 +359,9 @@ void uarttx_task(void *arg)
     cmd_info();
 
     for (;;) {
-        QueueSetMemberHandle_t h = xQueueSelectFromSet(s_set, portMAX_DELAY);
+        /* Otomatik durdurma bekliyorsa (30. basış) kısa aralıklarla kontrol et */
+        const TickType_t wait = g_stop_pending ? pdMS_TO_TICKS(50) : portMAX_DELAY;
+        QueueSetMemberHandle_t h = xQueueSelectFromSet(s_set, wait);
         if (h == g_tx_q) {
             /* STOP sırasında doğrudan boşaltılmış olabilir: boşsa atla */
             if (xQueueReceive(g_tx_q, &s_cur, 0) == pdPASS) {
@@ -362,6 +372,15 @@ void uarttx_task(void *arg)
             if (xQueueReceive(g_cmd_q, &c, 0) == pdPASS) {
                 handle_cmd(&c);
             }
+        }
+
+        /* 30. olay dahil tüm olaylar kapandıysa (yanıt hattan çıktı ya da kayıp
+           olarak işaretlendi): telemetri hâlâ açıkken ölçülmüş olurlar. Şimdi
+           durdur ve kayıtları gönder. */
+        if (g_stop_pending && evlog_all_closed()) {
+            stop_measurement();
+            reply2("ACK,STOP", scenario_current()->name);
+            cmd_dump();
         }
     }
 }

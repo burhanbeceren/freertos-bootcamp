@@ -22,9 +22,9 @@ AS      := $(PREFIX)gcc -x assembler-with-cpp
 CP      := $(PREFIX)objcopy
 SZ      := $(PREFIX)size
 
-PROGRAMMER ?= "/c/Program Files/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe"
+PROGRAMMER ?= "C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI.exe"
 
-GIT_REV := $(shell git rev-parse --short HEAD 2>/dev/null || echo nogit)
+GIT_REV := $(shell git describe --always --dirty 2>/dev/null || echo nogit)
 
 C_SOURCES := \
   $(wildcard App/Src/*.c) \

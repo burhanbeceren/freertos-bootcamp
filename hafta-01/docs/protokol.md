@@ -37,5 +37,15 @@ LOG alan sırası: `senaryo,event_id,t0,t1,t2,t3,t4,durum`. Eksik zaman boş bı
 | `STOP` | Basış kabulünü kapat, telemetriyi durdur, TX kuyruğunu gönder (TC 1 s timeout), tamamlanmayanları `timeout` yap | Her zaman |
 | `DUMP` | LOG + CNT + END | Ölçüm durmuşken; aksi halde `NAK,DUMP,running` |
 
+### Kart üzerinden üretilen komutlar
+PC → kart yönü olmadan da deney yürütülebilir. Buton ISR'ları aynı komut kuyruğuna şu metinleri bırakır; UartTxTask bunları PC komutu gibi işler ve aynı `ACK` satırlarını gönderir. Arayüz bu satırlardan durumu izler.
+
+| Kaynak | Komut | Etki |
+|---|---|---|
+| Mavi buton, boşta kısa basış | `SCNNEXT` | Sonraki senaryo → `ACK,SCN,Sx` |
+| Mavi buton, boşta uzun basış (≥ 1 s) | `START` | → `ACK,START,Sx` |
+| 30. kabul edilen olay kapandı | (iç) | STOP + DUMP → `ACK,STOP,Sx`, LOG…, `END,DUMP,Sx` |
+| PE7 butonu (isteğe bağlı) | `SCNNEXT` / `START` / `STOPDUMP` | Aynı |
+
 ## 3. Tek sahiplik
 UART'a yalnızca `UartTxTask` yazar: TEL/BTN kuyruktan gelir, komut yanıtlarını ise görev kendisi üretir. RX baytları USART2 ISR'ında satıra birleştirilir. Satır, komut kuyruğu üzerinden **yine UartTxTask'a** iletilir. Bu yüzden komut yanıtları ölçülen mesajlarla aynı hat üzerinde yarışmaz.
