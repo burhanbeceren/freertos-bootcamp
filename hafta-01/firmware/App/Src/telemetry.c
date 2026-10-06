@@ -11,6 +11,7 @@
 #include "scenario.h"
 #include "timebase.h"
 #include "work.h"
+#include "adc_temp.h"
 
 static volatile bool     s_run;
 static volatile uint32_t s_gen;   /* her START'ta artar: eski döngü parametreleri bırakılır */
@@ -59,6 +60,12 @@ static bool make_telemetry(tx_msg_t *m, uint32_t seq, uint32_t work_us, uint32_t
     sb_u32(&sb, work_us);
     sb_char(&sb, ',');
     sb_u32(&sb, chk & 0xFFFFu);
+    sb_char(&sb, ',');
+    sb_u32(&sb, (uint32_t)uxQueueMessagesWaiting(g_tx_q));   /* TX kuyruğu doluluğu */
+    sb_char(&sb, ',');
+    sb_i32(&sb, adc_temp_dC());                               /* 0,1 °C */
+    sb_char(&sb, ',');
+    sb_u32(&sb, adc_vdda_mV());
     return msg_seal_fixed(&sb);
 }
 
@@ -100,6 +107,7 @@ void telemetry_task(void *arg)
                 if (w > s_work_max) s_work_max = w;
             }
 
+            adc_temp_step();                               /* bekleme yok */
             if (make_telemetry(&m, ++seq, w, chk)) {
                 if (xQueueSend(g_tx_q, &m, 0) != pdPASS) {
                     g_cnt.tel_tx_drop++;

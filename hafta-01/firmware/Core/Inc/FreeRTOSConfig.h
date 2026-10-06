@@ -49,7 +49,7 @@ void Error_Handler(void);
 #define configASSERT(x)                         do { if ((x) == 0) { Error_Handler(); } } while (0)
 
 /* ---- API dahil etme ---- */
-#define INCLUDE_vTaskPrioritySet                0
+#define INCLUDE_vTaskPrioritySet                1   /* Varyant C */
 #define INCLUDE_uxTaskPriorityGet               0
 #define INCLUDE_vTaskDelete                     0
 #define INCLUDE_vTaskSuspend                    1

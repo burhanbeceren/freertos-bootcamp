@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Kart | STM32F407G-DISC1, 168 MHz |
-| Firmware | `hafta01-1.0.0`, `-O2`. Kaynak kod teslim commit'indekiyle aynıdır (§7). |
+| Firmware | §1–7: `hafta01-1.0.0`, `-O2`. §8: `hafta01-1.1.0` (varyantlar, EXTI enjeksiyonu). |
 | Ölçüm | 2026-09-26/27. Her senaryoda 30 kabul edilen basış; toplam 180 olay |
 | Ham veri | [../measurements/](../measurements/): `S0.csv … S5.csv`, `Sx_counters.csv`, `raw/Sx_session.log` |
 | Özet | [../measurements/summary.csv](../measurements/summary.csv) · [results_tables.md](results_tables.md) |
@@ -113,6 +113,51 @@ R'nin **%99,4'ü UART hat süresidir.** RTOS'un toplam payı yalnızca ≈ 33 µ
 1. **Frekans ile CPU yükü farklı aşamaları etkiliyor.** Telemetri frekansı yalnızca t₃−t₂'yi uzatır ve etkisi bir mesaj süresiyle sınırlıdır. CPU yükü önce t₁−t₀'ı uzatır. Eşik aşılınca (C + L > T) TX görevini aç bırakır ve **sınırsız birikmeye** yol açar.
 2. **Kritik eşik ≈ T − L = 10 − 5,55 ≈ 4,45 ms.** 2 ms güvenli, 5 ms çöküş. Aradaki değerler ölçülmedi.
 3. **En düşük öncelikli UART sahibi görev, yük altında darboğaz olur.** Önerilen ek deneyler (bu karşılaştırmanın dışında): UartTxTask'ın önceliğini yükseltmek, BTN'i kuyruğun önüne koymak (`xQueueSendToFront`), baud'u artırmak. Bkz. [../docs/ROADMAP.md](../docs/ROADMAP.md).
+
+## 8. İyileştirme: kaymayı en aza indirmek (varyant A/B/C, FW 1.1.0)
+
+§4'te ölçülen üç gecikme kaynağı ayrı ayrı hedeflendi. Her değişiklik bir varyanttır; çalışma anında `VAR` komutuyla seçilir (ADR-011):
+
+| Varyant | Değişiklik | Hedeflenen kaynak |
+|---|---|---|
+| **A** | Görev standardı (tek FIFO, Tel 3 > Btn 2 > Uart 1) | — (referans) |
+| **B** | Öncelikli yanıt kuyruğu: BTN, kuyruktaki TEL'lerin önünde servis edilir | t₃−t₂: kuyruk birikmesi |
+| **C** | B + öncelik Button 4 > UartTx 3 > Telemetry 2 | t₁−t₀: CPU işi bekleme · t₃−t₂: UART görevinin aç kalması |
+
+**Yöntem:** Aynı kartta, aynı firmware ile 3 varyant × 6 senaryo = 18 deney yapıldı; her deneyde 50 olay (toplam 900). Uyarım **EXTI enjeksiyonu** ile sağlandı: TIM7, 0,5–0,9 s rastgele aralıklarla EXTI0'ı yazılımla tetikler (ADR-012). ISR'dan sonraki yol fiziksel basışla aynıdır. Doğrulama olarak A varyantında enjeksiyonla S0/S3/S4 için 5,59 / 7,03 / 8,43 ms ölçüldü; §2'deki fiziksel buton ölçümü 5,59 / 7,08 / 8,50 ms'dir. Ham veri: `measurements/runs/{A,B,C}-INJ/`; özet: `measurements/variants_summary.csv`; tablo: [variants_tables.md](variants_tables.md); kod: `scripts/compare_variants.py`.
+
+### 8.1 Sonuç: gözlenen en kötü yanıt (ms)
+| Senaryo | A | B | **C** |
+|---|---|---|---|
+| S0 | 5,60 | 5,59 | **5,59** |
+| S1 · 10 Hz | 9,84 | 10,94 | **7,97** |
+| S2 · 50 Hz | 10,97 | 10,98 | **10,95** |
+| S3 · 100 Hz | 10,97 | 10,94 | **11,00** |
+| S4 · + 2 ms CPU | 13,01 | 10,98 | **10,98** |
+| S5 · + 5 ms CPU | **165,34** (33 geç, 17 kayıp, 18 TEL düştü) | 15,36 (35 TEL düştü) | **10,87** (kayıp 0, TEL kaybı 0) |
+
+![Varyantlar](plots/variants_R.png)
+![Aşamalar](plots/variants_stages.png)
+
+### 8.2 Hangi değişiklik, hangi aşamayı, ne kadar düzeltti?
+- **B, S5'teki kuyruk birikmesini kaldırdı.** t₃−t₂ ortalaması 122,0 ms'den 3,8 ms'ye indi; 50/50 yanıt deadline'ı karşıladı. Ancak UART görevi hâlâ aç kaldığı için kuyruk TEL'lerle doldu ve 35 TEL düştü. Yani B sorunu butondan telemetriye kaydırdı. S4'te en kötü değer 13,01 → 10,98 ms oldu: iş biten TEL artık yanıtın önüne geçemiyor.
+- **C, kalan iki kaynağı da kaldırdı.**
+  - t₁−t₀ her senaryoda **en fazla 8 µs**. A'da S4'te 1,86 ms, S5'te 4,86 ms idi; yanıt artık CPU işini beklemiyor.
+  - S5'te UART görevi TC gelir gelmez sıradaki mesajı başlatıyor; birikme yok, **TEL kaybı yok**.
+  - Sonuç: S5'in en kötü değeri 10,87 ms, yani yüksüz S3 ile aynı.
+- **Hiçbir varyantın değiştiremediği şey:** O anda hatta olan 64 baytlık mesaj kesilemez. C'de bile S2–S5'in en kötü değeri ≈ 11 ms'dir: bir mesajın kalan süresi (≤ 5,55 ms) + yanıtın kendi süresi (5,55 ms). Bu, 115200 baud ve 64 bayt standardının **fiziksel alt sınırıdır**. Daha aşağısı için hat süresi kısaltılmalıdır (baud artırma veya kısa mesaj); bu görev standardını değiştirir.
+- **Ortalamalardaki küçük farklar (ör. S3'te A 7,03 / C 7,82 ms) varyant etkisi değildir.** Bekleme yaşayan basış sayısı, basışın hattaki TEL'e denk geldiği basış sayısıyla her varyantta birebir aynıdır: S3'te A 31/50, B 24/50, C 34/50. Yani fark, rastgele basış fazının örneklenmesinden geliyor. En kötü değerler (≈ 11 ms) ise aynı.
+
+### 8.3 EXTI testi: t₀'ın önündeki kesme giriş gecikmesi
+Ölçüm dışında 100 kez `EXTI->SWIER` yazılıp ISR'daki ilk ölçüm anı DWT çevrim sayacıyla ölçüldü. Sonuç: **min 63 / ort 63 / maks 94–95 çevrim = 375 / 375 / 560 ns** (168 MHz). Bu süre, §7'de "ölçülemiyor" diye belirtilen kesme giriş gecikmesinin kartta ölçülen değeridir; R'nin yanında ihmal edilebilir. Buton mekaniği ve RC filtre hâlâ ölçülmüyor.
+
+### 8.4 Mühendislik sonucu
+Kayma üç farklı mekanizmadan geliyor ve her biri farklı bir tasarım kararıyla düzeliyor:
+1. FIFO'da TEL arkasında bekleme → öncelikli yanıt kuyruğu (B).
+2. Yüksek öncelikli CPU işinin yanıtı geciktirmesi → yanıt görevini işten yukarı almak (C).
+3. UART sahibinin aç kalması → UART görevini CPU işinden yukarı almak (C).
+
+C ile **bütün senaryolarda en kötü yanıt ≈ 11 ms, deadline payı ≥ +9 ms**, buton ve telemetri kaybı yok. Kalan tek kayma, hatta o anda giden mesajın süresidir.
 
 ## 7. Sınırlar ve açık noktalar
 - t₀ fiziksel basış anı değildir. Buton mekaniği ve karttaki RC filtre ölçülmedi.

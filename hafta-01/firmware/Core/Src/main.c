@@ -12,6 +12,7 @@
 #include "app_config.h"
 #include "timebase.h"
 #include "work.h"
+#include "adc_temp.h"
 
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef  hdma_usart2_tx;
@@ -32,6 +33,7 @@ int main(void)
 
     timebase_init();            /* TIM2 = 1 MHz zaman damgası */
     work_calibrate();           /* S4/S5 CPU işi için iterasyon/ms */
+    adc_temp_init();            /* TEL: sıcaklık + VDDA */
 
     app_init();                 /* kuyruklar + 3 görev */
 

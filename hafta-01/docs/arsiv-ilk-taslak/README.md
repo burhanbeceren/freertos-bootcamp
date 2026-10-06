@@ -1,6 +1,6 @@
 # Arşiv: İlk spesifikasyon taslağı (v0.1)
 
-Bu klasör, ödev dokümanı (gereksinimler) gelmeden önce yazılan ilk taslağı içerir. **Geçerli değildir.** Güncel kaynaklar şunlardır:
+Bu klasör, görev dokümanı (gereksinimler) gelmeden önce yazılan ilk taslağı içerir. **Geçerli değildir.** Güncel kaynaklar şunlardır:
 
 | Eski | Yerine |
 |---|---|
@@ -12,4 +12,4 @@ Bu klasör, ödev dokümanı (gereksinimler) gelmeden önce yazılan ilk taslağ
 | 08_TEST_PLAN | [../../analysis/analiz.md](../../analysis/analiz.md) |
 | DECISIONS, ROADMAP | [../DECISIONS.md](../DECISIONS.md), [../ROADMAP.md](../ROADMAP.md) |
 
-Başlıca farklar: görev yapısı ödev standardına (3 > 2 > 1) göre değişti; zaman damgası kaynağı DWT'den TIM2 1 MHz'e geçti; baud 115200 oldu.
+Başlıca farklar: görev yapısı görev standardına (3 > 2 > 1) göre değişti; zaman damgası kaynağı DWT'den TIM2 1 MHz'e geçti; baud 115200 oldu.

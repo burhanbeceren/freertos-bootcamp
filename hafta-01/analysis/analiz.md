@@ -1,6 +1,6 @@
 # Analiz: Hipotez ve Ölçüm Planı
 
-Bu doküman, ödevin istediği "bir hipotez ve ölçüm planı" bölümüdür. Hipotezler ölçümden önce basit hesaplarla yazıldı. **Kararı gerçek kart ölçümleri verir.** Sonuçlar ve kararlar [report.md](report.md) içindedir.
+Bu doküman, görevin istediği "bir hipotez ve ölçüm planı" bölümüdür. Hipotezler ölçümden önce basit hesaplarla yazıldı. **Kararı gerçek kart ölçümleri verir.** Sonuçlar ve kararlar [report.md](report.md) içindedir.
 
 ## 1. Soru
 "100 Hz daha yavaş" demek yeterli değil. Gecikme **ne kadar**, **hangi koşulda**, **hangi aşamada** (t₁−t₀, t₂−t₁, t₃−t₂, t₄−t₃) ve **neden** değişiyor?

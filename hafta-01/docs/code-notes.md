@@ -171,10 +171,55 @@ if (s_idle_down) { s_idle_down = false; return EDGE_IDLE_RELEASE; }   /* kısa: 
 
 **Otomatik durdurma** yanlılık yaratmayacak şekilde çalışır. 30. olay kabul edilince ISR `g_stop_pending = true` yapar ve yeni basış kabul edilmez. Telemetri ve CPU yükü **açık kalır**. UartTxTask her mesajdan sonra (ve 50 ms'de bir) `evlog_all_closed()` ile bütün olayların kapandığını kontrol eder. 30. olayın yanıtı hattan çıkınca ya da kayıp olarak işaretlenince STOP + DUMP yapar. Böylece son olay da diğerleriyle aynı koşulda ölçülür.
 
-## 8. PC tarafı
+## 8. Gecikme azaltma varyantları (A/B/C)
+
+```c
+/* ButtonTask: A ortak TX FIFO'ya, B/C öncelikli yanıt kuyruğuna yazar */
+QueueHandle_t q = (g_variant == VAR_A) ? g_tx_q : g_reply_q;
+evlog_set(e.id, T2, timer_us());               /* t2 */
+if (xQueueSend(q, &m, 0) != pdPASS) { ... tx_drop ... }
+
+/* UartTxTask: her uyanışta tam bir öğe, öncelik yanıt > komut > TEL */
+if (xQueueReceive(g_reply_q, &s_cur, 0) == pdPASS)      send_queued(&s_cur);
+else if (xQueueReceive(g_cmd_q, &c, 0) == pdPASS)       handle_cmd(&c);
+else if (xQueueReceive(g_tx_q, &s_cur, 0) == pdPASS)    send_queued(&s_cur);
+
+/* C: öncelikler çalışma anında değiştirilir (yalnız ölçüm dışında) */
+vTaskPrioritySet(g_btn_task, 4); vTaskPrioritySet(g_uarttx_task, 3); vTaskPrioritySet(g_tel_task, 2);
+```
+
+- **B**, A'daki "yanıt kuyruktaki TEL'lerin arkasında bekler" sorununu hedefler. O anda hatta olan mesaj kesilemez; bu yüzden bekleme en fazla bir mesaj süresi (~5,55 ms) olur.
+- **C**, iki şeyi daha giderir: ButtonTask CPU işinin bitmesini beklemez (t₁−t₀ ≈ 7 µs kalır). UartTxTask CPU işinden önce çalışır; TC gelir gelmez sıradaki mesajı başlatır (S5'teki aç kalma yok).
+- Kuyruk kümesinde her uyanışta tek öğe işlendiği için öğe sayısı ile tutamaç sayısı eşit kalır. Hangi tutamacın döndüğü önemsizdir.
+
+## 9. EXTI enjeksiyonu, EXTI testi, ST-LINK posta kutusu
+
+```c
+void TIM7_IRQHandler(void)                       /* öncelik 6 < EXTI0 (5) */
+{
+    TIM7->SR = 0;
+    if (g_source != SRC_INJ || !g_started || g_stop_pending) return;
+    s_inject_pending = true;
+    EXTI->SWIER = 1u << 0;                       /* EXTI0 hemen araya girer -> t0 */
+    arm_ms(INJ_MIN_MS + (rnd() % INJ_SPAN_MS));  /* 0,5–0,9 s sonra tekrar */
+}
+```
+
+EXTI0 ISR'ında t₀ yine ilk komutta alınır. Enjekte kenar, pin seviyesine bakılmadan basış sayılır; sonrası fiziksel basışla aynıdır.
+
+**EXTI testi:** UartTxTask, ölçüm dışında 100 kez `EXTI->SWIER` yazar. ISR'daki ilk ölçüm anı ile arasındaki farkı DWT çevrim sayacıyla ölçer. Ölçülen değer 63 çevrim ≈ 375 ns, en fazla 95 çevrim ≈ 565 ns'dir. Bu, t₀'ın önündeki kesme giriş gecikmesidir.
+
+**Posta kutusu:** `__attribute__((section(".mailbox"))) volatile dbg_mailbox_t g_mailbox;` linker'da 0x20000000'a sabitlenmiştir (NOLOAD). PC metni yazar, sonra seq'i yazar. `mailbox_poll()` seq değişince komutu `handle_cmd()`'e verir.
+
+## 10. PC tarafı
 `interface/uart_monitor/`:
 - `link.py`: ayrı iş parçacığında okuma yapar; satırlar toplu sinyalle gelir.
 - `protocol.py`: satır çözücü.
 - `session.py`: SCN → START → STOP → DUMP durum makinesi ve CSV yazımı.
 - `metrics.py`: mod 2³² farklar ve özet. Analiz betikleri de aynı modülü kullanır.
-- `gui.py`: arayüz 100 ms'de bir güncellenir; 100 Hz TEL arayüzü boğmaz ve TEL satırları ham görünüme yazılmaz.
+- `control.py`: komut kanalı; UART veya ST-LINK posta kutusu, otomatik seçim.
+- `runner.py`: başlıksız deney yürütücüsü (varyant × senaryo matrisi).
+- `views.py` / `gui.py`: "Yanıt Süresi Laboratuvarı" arayüzü.
+  - Sol kenar çubuğu: bağlantı, deney planı (senaryo + hat/CPU doluluğu, varyant kartları, uyarım, olay sayısı), kart durumu.
+  - Sağ alan: gecikme zinciri, olay şeridi, istatistik şeridi; R ve kümülatif dağılım, aşamalar, olay tablosu, varyant ısı matrisi ve canlı TX kuyruğu sekmeleri.
+  - Arayüz 100 ms'de bir güncellenir; TEL satırları ham görünüme yazılmaz.

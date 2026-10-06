@@ -21,6 +21,9 @@ class Tel:
     t_us: int          # MCU'da TEL oluşturma anı (TIM2)
     work_us: int       # Bu periyotta ölçülen CPU işi süresi
     chk: int
+    txq: Optional[int] = None       # TX kuyruğu doluluğu (FW >= 1.1)
+    temp_dC: Optional[int] = None   # Dahili sıcaklık, 0,1 °C (FW >= 1.1)
+    vdda_mV: Optional[int] = None
 
 
 @dataclass
@@ -28,6 +31,8 @@ class Btn:
     event_id: int
     scenario: str
     text: str
+    t0: Optional[int] = None        # FW >= 1.1: canlı t0 / t1
+    t1: Optional[int] = None
 
 
 @dataclass
@@ -76,11 +81,17 @@ def parse_line(raw: str):
         if tag == "TEL":
             if len(parts) < 6:
                 raise ProtocolError(f"TEL alan sayısı: {line!r}")
-            return Tel(int(parts[1]), parts[2], int(parts[3]), int(parts[4]), int(parts[5]))
+            ext = [int(x) for x in parts[6:9]]
+            ext += [None] * (3 - len(ext))
+            temp = ext[1] if ext[1] is not None and ext[1] > -9999 else None
+            return Tel(int(parts[1]), parts[2], int(parts[3]), int(parts[4]), int(parts[5]),
+                       ext[0], temp, ext[2] or None)
         if tag == "BTN":
             if len(parts) < 4:
                 raise ProtocolError(f"BTN alan sayısı: {line!r}")
-            return Btn(int(parts[1]), parts[2], parts[3])
+            t0 = int(parts[4]) if len(parts) > 5 else None
+            t1 = int(parts[5]) if len(parts) > 5 else None
+            return Btn(int(parts[1]), parts[2], parts[3], t0, t1)
         if tag == "LOG":
             if len(parts) != 9:
                 raise ProtocolError(f"LOG alan sayısı: {line!r}")
@@ -93,7 +104,7 @@ def parse_line(raw: str):
             if len(parts) < 3:
                 raise ProtocolError(f"{tag} alan sayısı: {line!r}")
             return KeyValue(tag, parts[1], ",".join(parts[2:]))
-        if tag in ("ACK", "NAK", "END", "BOOT"):
+        if tag in ("ACK", "NAK", "END", "BOOT", "EXT"):
             return Reply(tag, parts[1:])
     except ValueError as exc:
         if isinstance(exc, ProtocolError):
@@ -110,6 +121,29 @@ def cmd_scenario(name: str) -> bytes:
     return f"SCN,{name}\n".encode("ascii")
 
 
+VARIANTS = ("A", "B", "C")
+SOURCES = ("HW", "INJ")
+
+
+def cmd_variant(v: str) -> bytes:
+    if v not in VARIANTS:
+        raise ValueError(v)
+    return f"VAR,{v}\n".encode("ascii")
+
+
+def cmd_source(src: str) -> bytes:
+    if src not in SOURCES:
+        raise ValueError(src)
+    return f"SRC,{src}\n".encode("ascii")
+
+
+def cmd_events(n: int) -> bytes:
+    if not 1 <= n <= 128:
+        raise ValueError(n)
+    return f"EVN,{n}\n".encode("ascii")
+
+
+CMD_EXTI = b"EXTI\n"
 CMD_START = b"START\n"
 CMD_STOP = b"STOP\n"
 CMD_DUMP = b"DUMP\n"

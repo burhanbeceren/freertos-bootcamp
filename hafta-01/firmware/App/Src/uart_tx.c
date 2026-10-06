@@ -5,7 +5,9 @@
  *  - TX FIFO kuyruğunu tüketir; t3'ü kaydedip DMA gönderimini başlatır.
  *  - Gönderim tamamlanana (USART TC) kadar görev bloklanır; t4 TC kesmesinde alınır.
  *  - Başlatma başarısızsa olay tx_error, TC 1 s içinde gelmezse timeout olur.
- *  - PC komutlarını (RX) da bu görev işler; hatta başka hiçbir bağlam yazmaz.
+ *  - PC komutlarını (RX ve ST-LINK posta kutusu) da bu görev işler; hatta başka
+ *    hiçbir bağlam yazmaz.
+ *  - Varyant B/C'de BTN yanıtları ayrı bir kuyruktan, TEL'den ÖNCE servis edilir.
  */
 #include "app.h"
 #include "main.h"
@@ -32,6 +34,7 @@ static QueueSetHandle_t  s_set;
 static tx_msg_t          s_cur;              /* Aktarım sonuna kadar yaşayan tampon */
 static char              s_line[LINE_MAX];   /* Ölçüm dışı satırlar için           */
 static volatile uint32_t s_tc_us;            /* t4: TC ISR'da yazılır              */
+static uint32_t          s_mb_last;          /* posta kutusu: son işlenen seq      */
 
 /* RX satır birleştirme (yalnız USART2 ISR bağlamı) */
 static char     s_rx_buf[CMD_MAX];
@@ -197,6 +200,9 @@ static void kvs(const char *tag, const char *key, const char *val)
 
 static void drain_tx_queue(void)
 {
+    while (xQueueReceive(g_reply_q, &s_cur, 0) == pdPASS) {
+        send_queued(&s_cur);
+    }
     while (xQueueReceive(g_tx_q, &s_cur, 0) == pdPASS) {
         send_queued(&s_cur);
     }
@@ -206,10 +212,19 @@ static void stop_measurement(void)
 {
     g_started = false;           /* yeni basış kabul edilmez           */
     g_stop_pending = false;
+    inject_stop();
     telemetry_stop();            /* TelemetryTask bir sonraki uyanışta bloklanır */
     drain_tx_queue();            /* bekleyen TX'i tamamla / timeout kaydet */
     evlog_finalize();            /* tamamlanmayanlar -> timeout         */
     HAL_GPIO_WritePin(LED_PORT, LED_ORANGE_PIN, GPIO_PIN_RESET);
+}
+
+static void run_info(void)
+{
+    const char v[2] = { (char)g_variant, '\0' };
+    kvs("INF", "variant", v);
+    kvs("INF", "source", app_source_name());
+    kv ("INF", "events", g_target_events);
 }
 
 static void cmd_info(void)
@@ -230,6 +245,14 @@ static void cmd_info(void)
     kv ("INF", "log_capacity", LOG_CAPACITY);
     kv ("INF", "iters_per_ms", work_iters_per_ms());
     kvs("INF", "scenario", scenario_current()->name);
+    run_info();
+    {
+        sb_t sb;
+        sb_init(&sb, s_line, sizeof s_line);
+        sb_str(&sb, "INF,mailbox,");
+        sb_hex32(&sb, (uint32_t)&g_mailbox);
+        send_line(&sb);
+    }
     reply2("ACK", "INFO");
 }
 
@@ -282,6 +305,7 @@ static void cmd_dump(void)
     kv("CNT", "hwm_telemetry_w", uxTaskGetStackHighWaterMark(g_tel_task));
     kv("CNT", "hwm_uarttx_w",    uxTaskGetStackHighWaterMark(NULL));
     kv("CNT", "heap_free_min_b", (uint32_t)xPortGetMinimumEverFreeHeapSize());
+    run_info();
     kvs("END", "DUMP", scn);
 }
 
@@ -316,8 +340,71 @@ static void handle_cmd(const cmd_t *c)
             g_arm_at_us = timer_us() + (WARMUP_MS * 1000u);
             g_started = true;
             telemetry_start();
+            inject_start();
             HAL_GPIO_WritePin(LED_PORT, LED_ORANGE_PIN, GPIO_PIN_SET);
-            reply2("ACK,START", scenario_current()->name);
+            sb_t sb;                              /* ACK,START,<senaryo>,<varyant>,<kaynak>,<n> */
+            sb_init(&sb, s_line, sizeof s_line);
+            sb_str(&sb, "ACK,START,");
+            sb_str(&sb, scenario_current()->name);
+            sb_char(&sb, ',');
+            sb_char(&sb, (char)g_variant);
+            sb_char(&sb, ',');
+            sb_str(&sb, app_source_name());
+            sb_char(&sb, ',');
+            sb_u32(&sb, g_target_events);
+            send_line(&sb);
+        }
+    } else if (strncmp(t, "VAR,", 4) == 0) {
+        const char v = t[4];
+        if (g_started) {
+            reply2("NAK", "VAR,running");
+        } else if ((v != 'A' && v != 'B' && v != 'C') || t[5] != '\0') {
+            reply2("NAK", "VAR,unknown");
+        } else {
+            app_apply_variant((variant_t)v);
+            reply2("ACK,VAR", t + 4);
+        }
+    } else if (strncmp(t, "SRC,", 4) == 0) {
+        if (g_started) {
+            reply2("NAK", "SRC,running");
+        } else if (strcmp(t + 4, "HW") == 0 || strcmp(t + 4, "INJ") == 0) {
+            g_source = (t[4] == 'I') ? SRC_INJ : SRC_HW;
+            reply2("ACK,SRC", app_source_name());
+        } else {
+            reply2("NAK", "SRC,unknown");
+        }
+    } else if (strncmp(t, "EVN,", 4) == 0) {
+        uint32_t n = 0;
+        for (const char *p = t + 4; *p >= '0' && *p <= '9'; p++) {
+            n = n * 10u + (uint32_t)(*p - '0');
+        }
+        if (g_started) {
+            reply2("NAK", "EVN,running");
+        } else if (n < 1u || n > LOG_CAPACITY) {
+            reply2("NAK", "EVN,range");
+        } else {
+            g_target_events = n;
+            kv("ACK", "EVN", n);
+        }
+    } else if (strcmp(t, "EXTI") == 0) {
+        if (g_started) {
+            reply2("NAK", "EXTI,running");
+        } else {
+            uint32_t mn, mean, mx;               /* SWIER -> EXTI0 ISR ilk ölçüm: çevrim */
+            exti_test_run(EXTI_TEST_COUNT, &mn, &mean, &mx);
+            sb_t sb;
+            sb_init(&sb, s_line, sizeof s_line);
+            sb_str(&sb, "EXT,");
+            sb_u32(&sb, EXTI_TEST_COUNT);
+            sb_char(&sb, ',');
+            sb_u32(&sb, mn);
+            sb_char(&sb, ',');
+            sb_u32(&sb, mean);
+            sb_char(&sb, ',');
+            sb_u32(&sb, mx);
+            sb_char(&sb, ',');
+            sb_u32(&sb, HAL_RCC_GetSysClockFreq());
+            send_line(&sb);
         }
     } else if (strcmp(t, "STOPDUMP") == 0) {
         /* PE7 kontrol butonu: durdur ve kayıtları hemen gönder */
@@ -338,6 +425,22 @@ static void handle_cmd(const cmd_t *c)
     }
 }
 
+/* PC -> kart: ST-LINK ile yazılan posta kutusu. GUI önce text'i, sonra seq'i yazar. */
+static void mailbox_poll(void)
+{
+    const uint32_t seq = g_mailbox.seq;
+    if (seq == s_mb_last) {
+        return;
+    }
+    s_mb_last = seq;
+    cmd_t c;
+    for (uint32_t i = 0; i < sizeof c.text - 1u; i++) {
+        c.text[i] = g_mailbox.text[i];
+    }
+    c.text[sizeof c.text - 1u] = '\0';
+    handle_cmd(&c);
+}
+
 /* ------------------------------------------------------------------------- */
 /* Görev                                                                     */
 /* ------------------------------------------------------------------------- */
@@ -347,10 +450,12 @@ void uarttx_task(void *arg)
     (void)arg;
 
     /* STOP sırasında doğrudan boşaltılan kuyruğun bayat tutamaçları için 2x pay */
-    s_set = xQueueCreateSet((2u * TX_QUEUE_LEN) + CMD_QUEUE_LEN);
+    s_set = xQueueCreateSet((2u * (TX_QUEUE_LEN + REPLY_QUEUE_LEN)) + CMD_QUEUE_LEN);
     configASSERT(s_set != NULL);
     (void)xQueueAddToSet(g_tx_q, s_set);
+    (void)xQueueAddToSet(g_reply_q, s_set);
     (void)xQueueAddToSet(g_cmd_q, s_set);
+    s_mb_last = g_mailbox.seq;
 
     /* RX kesmesini aç (HAL RX API'si kullanılmıyor) */
     __HAL_UART_ENABLE_IT(&huart2, UART_IT_RXNE);
@@ -360,19 +465,23 @@ void uarttx_task(void *arg)
 
     for (;;) {
         /* Otomatik durdurma bekliyorsa (30. basış) kısa aralıklarla kontrol et */
-        const TickType_t wait = g_stop_pending ? pdMS_TO_TICKS(50) : portMAX_DELAY;
-        QueueSetMemberHandle_t h = xQueueSelectFromSet(s_set, wait);
-        if (h == g_tx_q) {
-            /* STOP sırasında doğrudan boşaltılmış olabilir: boşsa atla */
-            if (xQueueReceive(g_tx_q, &s_cur, 0) == pdPASS) {
+        /* Zaman aşımı: posta kutusu yoklaması (100 ms) ve otomatik durdurma (50 ms) */
+        const TickType_t wait = pdMS_TO_TICKS(g_stop_pending ? 50u : 100u);
+        if (xQueueSelectFromSet(s_set, wait) != NULL) {
+            /* Her uyanışta tam bir öğe işlenir; öncelik: yanıt > komut > TEL.
+               Öğe sayısı = tutamaç sayısı olduğundan hangi tutamacın döndüğü önemsizdir.
+               STOP sırasında doğrudan boşaltılan kuyruklar bayat tutamaç bırakır;
+               o durumda hiçbir kuyruk öğe vermez ve döngü devam eder. */
+            cmd_t c;
+            if (xQueueReceive(g_reply_q, &s_cur, 0) == pdPASS) {
+                send_queued(&s_cur);
+            } else if (xQueueReceive(g_cmd_q, &c, 0) == pdPASS) {
+                handle_cmd(&c);
+            } else if (xQueueReceive(g_tx_q, &s_cur, 0) == pdPASS) {
                 send_queued(&s_cur);
             }
-        } else if (h == g_cmd_q) {
-            cmd_t c;
-            if (xQueueReceive(g_cmd_q, &c, 0) == pdPASS) {
-                handle_cmd(&c);
-            }
         }
+        mailbox_poll();
 
         /* 30. olay dahil tüm olaylar kapandıysa (yanıt hattan çıktı ya da kayıp
            olarak işaretlendi): telemetri hâlâ açıkken ölçülmüş olurlar. Şimdi

@@ -17,8 +17,10 @@ def test_full_flow_and_save(tmp_path):
     assert s.tel_seen == 1 and s.btn_seen == 1
     feed(s, "ACK,STOP,S3", "LOG,S3,1,10,20,30,40,5640,ok", "CNT,tel_tx_drop,0", "END,DUMP,S3")
     assert s.state is State.DONE and len(s.rows) == 1
-    paths = s.save(tmp_path)
+    paths = s.save(tmp_path, flat=True)              # görevin resmî düzeni
     assert (tmp_path / "S3.csv").read_text().splitlines()[1] == "S3,1,10,20,30,40,5640,ok"
+    paths2 = s.save(tmp_path)                        # varsayılan: runs/<V>-<SRC>/
+    assert paths2[0] == tmp_path / "runs" / "A-HW" / "S3.csv"
     assert all(p.exists() for p in paths)
 
 

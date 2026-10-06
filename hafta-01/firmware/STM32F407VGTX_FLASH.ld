@@ -111,6 +111,15 @@ SECTIONS
     PROVIDE_HIDDEN (__fini_array_end = .);
   } >FLASH
 
+  /* PC -> kart komut posta kutusu. ST-LINK (SWD) ile yazılır; sabit adres 0x20000000.
+     FTDI'nin TX hattı çalışmadığında arayüz komutları bu yoldan gönderir. */
+  .mailbox (NOLOAD) :
+  {
+    . = ALIGN(4);
+    KEEP(*(.mailbox))
+    . = ALIGN(4);
+  } >RAM
+
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 

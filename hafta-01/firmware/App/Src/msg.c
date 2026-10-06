@@ -40,6 +40,25 @@ void sb_u32(sb_t *sb, uint32_t v)
     }
 }
 
+void sb_hex32(sb_t *sb, uint32_t v)
+{
+    static const char hx[] = "0123456789ABCDEF";
+    sb_str(sb, "0x");
+    for (int i = 7; i >= 0; i--) {
+        sb_char(sb, hx[(v >> (i * 4)) & 0xFu]);
+    }
+}
+
+void sb_i32(sb_t *sb, int32_t v)
+{
+    if (v < 0) {
+        sb_char(sb, '-');
+        sb_u32(sb, (uint32_t)(-(v + 1)) + 1u);
+    } else {
+        sb_u32(sb, (uint32_t)v);
+    }
+}
+
 bool msg_seal_fixed(sb_t *sb)
 {
     if (sb->overflow || sb->cap < MSG_LEN || sb->len > (MSG_LEN - 1u)) {

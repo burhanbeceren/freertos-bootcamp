@@ -15,7 +15,7 @@
                                VCC  → BAĞLAMAYIN
 ```
 
-Ölçüm için yalnızca **kart → PC** yönü (PA2 → RXD) gereklidir. Deney akışı kartın mavi butonuyla yönetilir (§6).
+Ölçüm için yalnızca **kart → PC** yönü (PA2 → RXD) gereklidir. PC → kart komutları, adaptörün TX'i çalışmıyorsa **ST-LINK üzerinden** gider (kartın USB kablosu takılı olmalı; STM32CubeProgrammer kurulu olmalı). Deney mavi butonla da yönetilebilir (§6).
 
 > **Adaptör notu:** Bu çalışmada iki adaptörün PC → kart yönü çalışmadı. PL2303HXA güncel Prolific sürücüsüyle hiç açılmadı. FT232 modülünde TX hep LOW kaldı; loopback testi (TXD↔RXD) başarısız oldu. Bu yüzden ölçümler **yalnızca RX** ile yapıldı. Adaptörünüzü denemek için TXD'yi RXD'ye bağlayıp bir terminalden gönderdiğinizin geri geldiğini kontrol edin.
 
@@ -95,7 +95,30 @@ py -3.11 -m venv .venv
 ```
 Testler: `.venv/Scripts/python -m pytest -q`
 
-## 6. Senaryo seçimi ve ölçüm adımları
+## 6. Arayüzle deney (önerilen)
+
+Arayüz ("Yanıt Süresi Laboratuvarı") iki bölümden oluşur. **Sol kenar çubuğu** bağlantıyı, deney planını ve kartın durumunu içerir. **Sağ alan** sonuçları gösterir.
+
+1. **Bağlantı:** USB-TTL portunu seçin → **Bağlan**. Komut kanalı otomatik seçilir (*ST-LINK posta kutusu* veya *UART*). Firmware sürümü görünür.
+2. **Deney planı → senaryo:** S0–S5 satırından birini seçin. Her satırda telemetrinin hat doluluğu (camgöbeği) ve ek CPU payı (kırmızı) çubuk olarak görünür.
+3. **Varyant** (A/B/C kartı), **uyarım** (fiziksel buton / otomatik tetik) ve **olay sayısı**nı seçin.
+4. **Başlat:** 5 s ısınma, ardından ölçüm. Sol alttaki ilerleme çubuğu kabul edilen basışları sayar. Sağdaki **olay şeridinde** her basış mor bir çip olarak belirir. **Gecikme zincirinde** t₁−t₀ canlı görünür.
+5. Olay sayısına ulaşınca kart son yanıtın hattan çıkmasını telemetri açıkken bekler, sonra kendisi durur ve kayıtları gönderir. Arayüz `measurements/runs/<V>-<KAYNAK>/Sx.csv` olarak kaydeder. Çipler yeşil (ok), kehribar (20 ms aşıldı) veya kırmızı (kayıp) olur.
+6. **Sağ alan:**
+   - Gecikme zinciri: EXTI ISR → ButtonTask → TX kuyruğu → UART hattı → TC, aşama süreleri ve R/pay.
+   - İstatistik şeridi: ok/olay, medyan, p95, en kötü R, deadline başarısı, kayıp, en küçük pay.
+   - Sekmeler: *Yanıt süreleri* (olay → R + kümülatif dağılım), *Aşamalar*, *Olay tablosu* (satıra tıklayınca zincirde gösterilir), *Varyant matrisi* (varyant × senaryo ısı tablosu), *Canlı kuyruk* (TX kuyruğu doluluğu), *Rapor grafikleri*, *Ham akış · sayaçlar · yardım*.
+   - "Görüntülenen oturum" listesinden kaydedilmiş bütün deneyler açılabilir.
+7. **Kesme gecikmesini ölç** (ölçüm dışında): yazılım tetiğinden ISR'a kadar geçen süre, 100 örnek.
+
+**Bütün matrisi tek komutla (insan basmadan):**
+```bash
+cd hafta-01/interface
+.venv/Scripts/python -m uart_monitor.runner --port COM5 --variants A,B,C --scenarios S0,S1,S2,S3,S4,S5 --source INJ --events 50 --exti-test
+cd .. && interface/.venv/Scripts/python analysis/scripts/compare_variants.py
+```
+
+## 7. Mavi butonla deney (PC → kart kanalı yokken)
 
 Her senaryo S0…S5 için aynı sıra izlenir:
 

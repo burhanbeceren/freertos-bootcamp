@@ -14,7 +14,7 @@ STM32F407G-DISC1 üzerinde FreeRTOS tabanlı, **yük altında buton → yanıt g
 ## Haftalar
 | Hafta | Konu | Durum |
 |---|---|---|
-| [hafta-01](hafta-01/) | Yük altında buton yanıt süresi: 3 görev · UART arayüzü · ölçüm ve kanıt | ✅ Tamamlandı: 180 gerçek ölçüm, [rapor](hafta-01/analysis/report.md) |
+| [hafta-01](hafta-01/) | Yük altında buton yanıt süresi: 3 görev · UART arayüzü · ölçüm ve kanıt | ✅ Tamamlandı: 180 fiziksel buton + 900 EXTI enjeksiyonu ölçümü, A/B/C iyileştirme, [rapor](hafta-01/analysis/report.md) |
 
 ## Temel Kararlar
 | Konu | Seçim |

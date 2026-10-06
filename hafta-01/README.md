@@ -16,6 +16,15 @@ Butona basıldığında orta öncelikli `ButtonTask` "butona basıldı" yanıtı
 | S4 | 100 Hz + 2 ms CPU | 8,50 ms | 13,06 ms | +6,94 ms | 30/30 ✅ | t₁−t₀ (≤ 1,9 ms) + t₃−t₂ |
 | S5 | 100 Hz + 5 ms CPU | 98,50 ms | 165,16 ms | −145,16 ms | **0/30 ❌** (18 geç, 12 kayıp) | t₃−t₂ her basışta +10 ms: UartTxTask CPU açlığı |
 
+### İyileştirme: kaymayı en aza indirmek (gerçek kart, EXTI enjeksiyonu, 18 deney × 50 olay)
+| En kötü R (ms) | S0 | S1 | S2 | S3 | S4 | S5 |
+|---|---|---|---|---|---|---|
+| **A** · görev standardı | 5,60 | 9,84 | 10,97 | 10,97 | 13,01 | **165,34** ❌ |
+| **B** · öncelikli yanıt kuyruğu | 5,59 | 10,94 | 10,98 | 10,94 | 10,98 | 15,36 (35 TEL düştü) |
+| **C** · B + öncelik Btn > Uart > Tel | 5,59 | 7,97 | 10,95 | 11,00 | 10,98 | **10,87** ✅ |
+
+C ile her senaryoda en kötü yanıt ≈ 11 ms; buton ve telemetri kaybı yok. Kalan kayma, hatta o anda giden 64 baytlık mesajın süresidir; 115200 baud'da bunun altına inilemez. Ayrıntı: [report.md §8](analysis/report.md).
+
 ## Teslimler
 
 | Teslim | Dosya |
@@ -80,7 +89,8 @@ TIM2 1 MHz 32 bit zaman damgası · SysTick 1 kHz · preemptive + time slicing �
 |---|---|
 | Ham ölçümler | [measurements/](measurements/): `S0.csv … S5.csv`, `Sx_counters.csv`, `raw/`, `summary.csv` |
 | Grafikler | [analysis/plots/](analysis/plots/), üreten kod [analysis/scripts/analyze.py](analysis/scripts/analyze.py) |
-| Rapor | [analysis/report.md](analysis/report.md) |
+| Rapor | [analysis/report.md](analysis/report.md) (§8: A/B/C iyileştirme) |
+| Varyant ölçümleri | [measurements/runs/](measurements/runs/), [variants_summary.csv](measurements/variants_summary.csv), [variants_tables.md](analysis/variants_tables.md) |
 
 ## Diğer dokümanlar
 [code-notes.md](docs/code-notes.md) (ISR, görevler, UART tamamlanması, zaman hesapları) · [protokol.md](docs/protokol.md) · [DECISIONS.md](docs/DECISIONS.md) · [ROADMAP.md](docs/ROADMAP.md) (öneriler) · [ai-usage.md](docs/ai-usage.md)

@@ -8,7 +8,7 @@
 
 > **REQ-01:** Kullanıcı butonuna basıldığında, orta öncelikli `ButtonTask` "butona basıldı" yanıtını (`BTN,<id>,<senaryo>,PRESSED`) üretmeli ve bu yanıt UART'tan tamamen çıkmalıdır. Buton ISR girişinden yanıtın son bitinin hattan çıkışına kadar geçen süre için **R = t₄ − t₀ ≤ 20 ms** sağlanmalıdır. Bu koşul §4'teki çalışma koşullarında ve S0–S5 senaryolarının her birinde geçerlidir.
 
-20 ms bu ödev için seçilmiş bir eşiktir, bir ürün standardı değildir.
+20 ms bu görev için seçilmiş bir eşiktir, bir ürün standardı değildir.
 
 ## 2. Başlangıç ve bitiş: ölçülen aralığın sınırları
 

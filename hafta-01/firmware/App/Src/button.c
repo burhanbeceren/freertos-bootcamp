@@ -33,6 +33,17 @@ typedef enum { EDGE_NONE, EDGE_MEASURE, EDGE_IDLE_PRESS, EDGE_IDLE_RELEASE } edg
  */
 static edge_t classify_edge(uint32_t now)
 {
+    /* EXTI enjeksiyonu (TIM7 -> SWIER): pin seviyesi değişmez; basış olarak ele alınır. */
+    if (inject_take_pending()) {
+        s_last_edge_us = now;
+        s_have_edge = true;
+        if (g_started && !g_stop_pending && (int32_t)(now - g_arm_at_us) >= 0) {
+            return EDGE_MEASURE;
+        }
+        g_cnt.ignored++;
+        return EDGE_NONE;
+    }
+
     const bool level_high = (GPIOA->IDR & BTN_PIN_MASK) != 0u;
     const bool quiet = !s_have_edge || elapsed_us(s_last_edge_us, now) >= DEBOUNCE_US;
 
@@ -77,6 +88,9 @@ void EXTI0_IRQHandler(void)
 {
     const uint32_t now = timer_us();          /* t0: ISR girişi */
     EXTI->PR = BTN_PIN_MASK;                  /* bayrağı temizle (1 yazarak) */
+    if (exti_test_hook()) {
+        return;                               /* EXTI testi: ölçüm olayı değil */
+    }
 
     const edge_t edge = classify_edge(now);
     BaseType_t wake = pdFALSE;
@@ -88,7 +102,7 @@ void EXTI0_IRQHandler(void)
             g_cnt.btn_q_drop++;
             evlog_status(e.id, EV_BTN_DROP);
         }
-        if (g_cnt.accepted >= AUTO_STOP_EVENTS) {
+        if (g_cnt.accepted >= g_target_events) {
             g_stop_pending = true;            /* yeni basış kabul edilmez; UartTxTask bitirir */
         }
     } else if (edge == EDGE_IDLE_RELEASE) {
@@ -107,7 +121,7 @@ void button_init_irq(void)
     HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 }
 
-static bool make_button_reply(tx_msg_t *m, uint32_t id)
+static bool make_button_reply(tx_msg_t *m, uint32_t id, uint32_t t0, uint32_t t1)
 {
     sb_t sb;
     m->kind = MSG_BTN;
@@ -117,7 +131,10 @@ static bool make_button_reply(tx_msg_t *m, uint32_t id)
     sb_u32(&sb, id);
     sb_char(&sb, ',');
     sb_str(&sb, scenario_current()->name);
-    sb_str(&sb, ",PRESSED");
+    sb_str(&sb, ",PRESSED,");
+    sb_u32(&sb, t0);                          /* arayüz canlı t1-t0 gösterir */
+    sb_char(&sb, ',');
+    sb_u32(&sb, t1);
     return msg_seal_fixed(&sb);
 }
 
@@ -129,18 +146,21 @@ void button_task(void *arg)
 
     for (;;) {
         (void)xQueueReceive(g_button_q, &e, portMAX_DELAY);
-        evlog_set(e.id, T1, timer_us());               /* t1: olay alındı */
+        const uint32_t t1 = timer_us();                /* t1: olay alındı */
+        evlog_set(e.id, T1, t1);
 
         HAL_GPIO_TogglePin(LED_PORT, LED_BLUE_PIN);   /* görsel yanıt */
 
-        if (!make_button_reply(&m, e.id)) {
+        if (!make_button_reply(&m, e.id, e.t0_us, t1)) {
             g_cnt.fmt_error++;
             evlog_status(e.id, EV_TX_ERROR);
             continue;
         }
 
+        /* A: ortak TX FIFO. B/C: öncelikli yanıt kuyruğu (TEL birikmesini atlar). */
+        QueueHandle_t q = (g_variant == VAR_A) ? g_tx_q : g_reply_q;
         evlog_set(e.id, T2, timer_us());               /* t2: xQueueSend'den hemen önce */
-        if (xQueueSend(g_tx_q, &m, 0) != pdPASS) {
+        if (xQueueSend(q, &m, 0) != pdPASS) {
             g_cnt.btn_tx_drop++;
             evlog_status(e.id, EV_TX_DROP);
         }

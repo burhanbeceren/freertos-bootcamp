@@ -35,6 +35,8 @@ void sb_init(sb_t *sb, char *buf, size_t cap);
 void sb_str(sb_t *sb, const char *s);
 void sb_u32(sb_t *sb, uint32_t v);
 void sb_char(sb_t *sb, char c);
+void sb_hex32(sb_t *sb, uint32_t v);   /* 0x########, sabit 10 karakter */
+void sb_i32(sb_t *sb, int32_t v);
 
 /* sb içeriğini 63 bayta boşlukla tamamlar + LF. Sığmazsa false. */
 bool msg_seal_fixed(sb_t *sb);
